@@ -304,9 +304,9 @@ function gameReducer(state: GameState, action: Action): GameState {
 interface GameContextType {
   state: GameState;
   dispatch: React.Dispatch<Action>;
-  login: (pseudo: string, role: 'student' | 'teacher' | 'admin', password?: string, classId?: string) => Promise<string>;
-  register: (pseudo: string, password: string, classId?: string, email?: string) => Promise<string>;
+  login: (pseudo: string, role: 'student' | 'teacher' | 'admin', password?: string, classId?: string) => Promise<'success' | 'wrong_password' | 'not_found'>;
   loginAsGuest: () => void;
+  register: (pseudo: string, password: string, classId?: string, email?: string) => Promise<'success' | 'already_exists'>;
   logout: () => void;
   createPersona: (persona: Omit<Persona, 'id' | 'createdAt' | 'createdBy'>) => void;
 }
@@ -338,73 +338,83 @@ export function GameProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  const login = async (pseudo: string, role: 'student' | 'teacher' | 'admin', password?: string, classId?: string): Promise<string> => {
+  const login = async (pseudo: string, role: 'student' | 'teacher' | 'admin', password?: string, classId?: string): Promise<'success' | 'wrong_password' | 'not_found'> => {
     if (role === 'teacher' || role === 'admin') {
       const defaultPseudo = role === 'teacher' ? 'Enseignant' : 'Administrateur';
       const existingUser = state.knownUsers.find(u => u.role === role);
-      dispatch(existingUser
-        ? { type: 'SET_USER', payload: { ...existingUser, classId } }
-        : { type: 'SET_USER', payload: { id: uuidv4(), pseudo: defaultPseudo, role, classId, createdAt: new Date() } }
-      );
+      if (existingUser) {
+        dispatch({ type: 'SET_USER', payload: { ...existingUser, classId } });
+      } else {
+        dispatch({ type: 'SET_USER', payload: { id: uuidv4(), pseudo: defaultPseudo, role, classId, createdAt: new Date() } });
+      }
       return 'success';
     }
 
+    // Always verify student credentials against Redis (source of truth for passwords)
     try {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'login', pseudo: pseudo.trim(), password: password?.trim(), classId: classId?.trim() }),
       });
-      const data = await res.json() as { result: string; user?: { id: string; pseudo: string; email: string | null; classId: string | null; createdAt: string } };
+      const data = await res.json();
       if (data.result === 'success' && data.user) {
         const user: User = {
           id: data.user.id,
           pseudo: data.user.pseudo,
           role: 'student',
-          email: data.user.email ?? undefined,
-          classId: data.user.classId ?? undefined,
+          email: data.user.email,
+          classId: data.user.classId || undefined,
           createdAt: new Date(data.user.createdAt),
         };
         dispatch({ type: 'SET_USER', payload: user });
         return 'success';
       }
-      return data.result;
+      return data.result as 'not_found' | 'wrong_password';
     } catch {
       return 'not_found';
     }
   };
 
-  const register = async (pseudo: string, password: string, classId?: string, email?: string): Promise<string> => {
+  const register = async (pseudo: string, password: string, classId?: string, email?: string): Promise<'success' | 'already_exists'> => {
     const norm = (s: string | undefined) => (s ?? '').trim().toUpperCase();
-    if (state.knownUsers.some(
+    const exists = state.knownUsers.some(
       u => u.role === 'student' &&
            u.pseudo.toLowerCase().trim() === pseudo.toLowerCase().trim() &&
            norm(u.classId) === norm(classId)
-    )) return 'already_exists';
+    );
+    if (exists) return 'already_exists';
 
     const normalizedClassId = classId?.trim().toUpperCase() || undefined;
-    const id = uuidv4();
+    const userId = uuidv4();
 
+    // Save to Redis first
     try {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'register', id, pseudo: pseudo.trim(), password: password.trim(), classId: normalizedClassId, email: email?.trim().toLowerCase() }),
+        body: JSON.stringify({ action: 'register', id: userId, pseudo: pseudo.trim(), password: password.trim(), classId: normalizedClassId, email: email?.trim().toLowerCase() }),
       });
-      const data = await res.json() as { result: string };
+      const data = await res.json();
       if (data.result === 'already_exists') return 'already_exists';
     } catch {
-      // fall through — register locally even if API is down
+      // Redis unavailable — still register locally
     }
 
-    const user: User = { id, pseudo: pseudo.trim(), role: 'student', email: email?.trim().toLowerCase(), classId: normalizedClassId, createdAt: new Date() };
+    const user: User = { id: userId, pseudo: pseudo.trim(), role: 'student', email: email?.trim().toLowerCase(), classId: normalizedClassId, createdAt: new Date() };
     dispatch({ type: 'REGISTER_USER', payload: user });
     return 'success';
   };
 
   const loginAsGuest = () => {
     const suffix = Math.floor(1000 + Math.random() * 9000);
-    const guest: User = { id: uuidv4(), pseudo: `Invité-${suffix}`, role: 'student', isGuest: true, createdAt: new Date() };
+    const guest: User = {
+      id: uuidv4(),
+      pseudo: `Invité-${suffix}`,
+      role: 'student',
+      isGuest: true,
+      createdAt: new Date(),
+    };
     dispatch({ type: 'SET_USER', payload: guest });
   };
 
@@ -425,7 +435,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <GameContext.Provider value={{ state, dispatch, login, register, loginAsGuest, logout, createPersona }}>
+    <GameContext.Provider value={{ state, dispatch, login, loginAsGuest, register, logout, createPersona }}>
       {children}
     </GameContext.Provider>
   );

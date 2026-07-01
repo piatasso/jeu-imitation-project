@@ -27,10 +27,10 @@ interface ConversationMessage {
 }
 
 const OPENING_MESSAGE =
-  "Salut ! Je suis là pour t'aider à créer un personnage fictif pour le Jeu de l'Imitation. " +
-  "Ce personnage sera joué par une IA, et les autres élèves devront deviner si c'est une IA ou un humain — " +
+  "Salut ! Je suis là pour t'aider à créer un persona fictif pour le Jeu de l'Imitation. " +
+  "Ce persona sera joué par une IA, et les autres élèves devront deviner si c'est une IA ou un humain — " +
   "donc plus il est réaliste, mieux c'est ! " +
-  "Pour commencer : comment s'appelle ton personnage ?";
+  "Pour commencer : comment s'appelle ton persona ?";
 
 // ─── Manual form helpers ────────────────────────────────────────────────────
 
@@ -80,7 +80,7 @@ export function PersonaPage() {
   const classmatesPersonas = personas.filter(p => !sameNameIds.has(p.createdBy));
 
   const deletePersona = (id: string) => {
-    if (confirm('Supprimer ce personnage ?')) {
+    if (confirm('Supprimer ce persona ?')) {
       dispatch({ type: 'DELETE_PERSONA', payload: id });
     }
   };
@@ -101,7 +101,7 @@ export function PersonaPage() {
   const TABS = [
     { id: 'chatbot' as Tab, label: 'Chatbot' },
     { id: 'manual' as Tab, label: 'Formulaire' },
-    { id: 'list' as Tab, label: `Personnages (${personas.length})` },
+    { id: 'list' as Tab, label: `Personas (${personas.length})` },
   ];
 
   return (
@@ -122,13 +122,13 @@ export function PersonaPage() {
             ← Retour
           </Link>
           <span style={{ color: MUTED }}>·</span>
-          <h1 className="text-xl font-bold" style={{ color: TEXT }}>Création de personnage</h1>
+          <h1 className="text-xl font-bold" style={{ color: TEXT }}>Création de persona</h1>
         </div>
 
         {/* Limit banner */}
         {atLimit && (
           <div className="mb-5 px-4 py-3 rounded-xl text-sm" style={{ background: '#fef9c3', color: '#854d0e', border: '1px solid #fde047' }}>
-            Tu as atteint la limite de {MAX_PERSONAS} personnages. Supprime un personnage existant pour en créer un nouveau.
+            Tu as atteint la limite de {MAX_PERSONAS} personas. Supprime un persona existant pour en créer un nouveau.
           </div>
         )}
 
@@ -177,7 +177,7 @@ export function PersonaPage() {
             {/* Sub-tabs */}
             <div className="flex gap-1 p-1 rounded-xl mb-5 w-fit" style={{ background: PANEL }}>
               {([
-                { id: 'mine' as const, label: `Mes personnages (${myPersonas.length})` },
+                { id: 'mine' as const, label: `Mes personas (${myPersonas.length})` },
                 { id: 'classmates' as const, label: `Camarades (${classmatesPersonas.length})` },
               ]).map(st => (
                 <button
@@ -198,10 +198,10 @@ export function PersonaPage() {
             {listSubTab === 'mine' && (
               myPersonas.length === 0 ? (
                 <div className="rounded-2xl p-12 text-center" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
-                  <p className="text-sm font-medium mb-2" style={{ color: TEXT }}>Aucun personnage créé</p>
+                  <p className="text-sm font-medium mb-2" style={{ color: TEXT }}>Aucun persona créé</p>
                   <p className="text-sm mb-5" style={{ color: MUTED }}>Utilise le chatbot ou le formulaire pour commencer.</p>
                   <button onClick={() => setTab('chatbot')} className="px-5 py-2.5 rounded-xl text-sm font-medium text-white" style={{ background: ACCENT }}>
-                    Créer un personnage
+                    Créer un persona
                   </button>
                 </div>
               ) : (
@@ -226,7 +226,7 @@ export function PersonaPage() {
             {listSubTab === 'classmates' && (
               classmatesPersonas.length === 0 ? (
                 <div className="rounded-2xl p-8 text-center" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
-                  <p className="text-sm" style={{ color: MUTED }}>Aucun personnage créé par tes camarades pour l'instant.</p>
+                  <p className="text-sm" style={{ color: MUTED }}>Aucun persona créé par tes camarades pour l'instant.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -329,7 +329,7 @@ function ChatbotCreator({
       const raw = data.response.replace(/```json?/gi, '').replace(/```/g, '').trim();
       setExtracted(JSON.parse(raw));
     } catch {
-      alert("Erreur lors de la génération du personnage. Continue la conversation et réessaie.");
+      alert("Erreur lors de la génération du persona. Continue la conversation et réessaie.");
     } finally {
       setIsExtracting(false);
     }
@@ -351,7 +351,7 @@ function ChatbotCreator({
       <div className="rounded-2xl p-6" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
         <div className="flex items-center gap-2 mb-5">
           <div className="w-2 h-2 rounded-full" style={{ background: '#10b981' }} />
-          <p className="text-sm font-semibold" style={{ color: TEXT }}>Personnage généré</p>
+          <p className="text-sm font-semibold" style={{ color: TEXT }}>Persona généré</p>
         </div>
         <div className="space-y-3 mb-6">
           {[
@@ -411,7 +411,7 @@ function ChatbotCreator({
             onMouseEnter={e => (e.currentTarget.style.background = '#4f46e5')}
             onMouseLeave={e => (e.currentTarget.style.background = ACCENT)}
           >
-            Sauvegarder le personnage
+            Sauvegarder le persona
           </button>
           <button
             onClick={() => setExtracted(null)}
@@ -485,7 +485,7 @@ function ChatbotCreator({
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && sendMessage()}
-            placeholder="Décris ton personnage..."
+            placeholder="Décris ton persona..."
             disabled={isLoading}
             className="flex-1 px-4 py-2.5 rounded-xl text-sm outline-none transition-all"
             style={{
@@ -514,7 +514,7 @@ function ChatbotCreator({
             className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity disabled:opacity-60"
             style={{ background: TEXT }}
           >
-            {isExtracting ? 'Génération en cours…' : "J'ai terminé — Créer le personnage"}
+            {isExtracting ? 'Génération en cours…' : "J'ai terminé — Créer le persona"}
           </button>
         ) : (
           <p className="text-xs text-center" style={{ color: MUTED }}>
@@ -734,7 +734,7 @@ function ManualCreator({
             value={speakingStyle}
             onChange={e => setSpeakingStyle(e.target.value)}
             style={{ ...fieldStyle, minHeight: '70px', resize: 'none' } as CSSProperties}
-            placeholder="Décris comment ce personnage s'exprime..."
+            placeholder="Décris comment ce persona s'exprime..."
             onFocus={e => (e.currentTarget.style.borderColor = ACCENT)}
             onBlur={e => (e.currentTarget.style.borderColor = BORDER)}
           />
@@ -760,7 +760,7 @@ function ManualCreator({
           onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#4f46e5'; }}
           onMouseLeave={e => (e.currentTarget.style.background = ACCENT)}
         >
-          Créer le personnage
+          Créer le persona
         </button>
       </form>
     </div>

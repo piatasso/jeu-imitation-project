@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useGame } from '../context/GameContext';
 
-const BG = '#faf7f2';
+const BG = '#f5f0e8';
 const CARD = '#ffffff';
 const BORDER = 'rgba(0,0,0,0.08)';
 const MUTED = '#78716c';

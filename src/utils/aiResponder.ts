@@ -141,7 +141,7 @@ async function generateAPIResponse(
   conversationHistory: Message[],
   lastQuestion: string,
   pastUserMessages: string[] = []
-): Promise<{ response: string; followUp: string | null; usage: { prompt_tokens: number; completion_tokens: number } | null }> {
+): Promise<{ response: string; followUp: string | null; followUp2: string | null; usage: { prompt_tokens: number; completion_tokens: number } | null }> {
   console.log('🔄 Appel API:', API_URL);
 
   const response = await fetch(API_URL, {
@@ -177,7 +177,7 @@ async function generateAPIResponse(
 
   const data = await response.json();
   console.log('✅ Réponse reçue:', data);
-  return { response: data.response, followUp: data.followUp ?? null, usage: data.usage ?? null };
+  return { response: data.response, followUp: data.followUp ?? null, followUp2: data.followUp2 ?? null, usage: data.usage ?? null };
 }
 
 // ============ FONCTION PRINCIPALE ============
@@ -187,14 +187,14 @@ export async function generateAIResponse(
   conversationHistory: Message[],
   lastQuestion: string,
   pastUserMessages: string[] = []
-): Promise<{ response: string; followUp: string | null; usage: { prompt_tokens: number; completion_tokens: number } | null }> {
+): Promise<{ response: string; followUp: string | null; followUp2: string | null; usage: { prompt_tokens: number; completion_tokens: number } | null }> {
   try {
     const result = await generateAPIResponse(persona, conversationHistory, lastQuestion, pastUserMessages);
     console.log('✓ Réponse générée par LLM');
     return result;
   } catch (error) {
     console.warn('⚠ API indisponible, fallback local:', error);
-    return { response: await generateFallbackResponse(persona, lastQuestion), followUp: null, usage: null };
+    return { response: await generateFallbackResponse(persona, lastQuestion), followUp: null, followUp2: null, usage: null };
   }
 }
 

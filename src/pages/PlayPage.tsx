@@ -33,7 +33,7 @@ function computeTypingDelay(responseText: string): number {
 
 export function PlayPage() {
   const { state, dispatch } = useGame();
-  const { currentUser, personas, sessions } = state;
+  const { currentUser, personas, sessions, enqueteurScores } = state;
 
   // All human messages sent directly to the AI across every completed session —
   // gives the AI a collective picture of how people talk to it
@@ -61,7 +61,20 @@ export function PlayPage() {
   const [justification, setJustification] = useState('');
   const [result, setResult] = useState<{ correct: boolean; points: number } | null>(null);
 
+  const classId = currentUser?.classId;
+  const [classClosed, setClassClosed] = useState(() =>
+    classId ? localStorage.getItem(`classClosed_${classId}`) === '1' : false
+  );
+  useEffect(() => {
+    if (!classId) return;
+    const id = setInterval(() => {
+      if (localStorage.getItem(`classClosed_${classId}`) === '1') setClassClosed(true);
+    }, 5000);
+    return () => clearInterval(id);
+  }, [classId]);
+
   const [bannedWordWarning, setBannedWordWarning] = useState<string | null>(null);
+  const [moderating, setModerating] = useState(false);
   const [role, setRole] = useState<'enqueteur' | 'enquete' | null>(null);
   const [enqueteMessages, setEnqueteMessages] = useState<Message[]>([]);
   const [enqueteInput, setEnqueteInput] = useState('');
@@ -290,13 +303,16 @@ export function PlayPage() {
       const data = await res.json() as { flagged: boolean };
       return data.flagged;
     } catch {
-      return false;
+      return false; // fail open if API unreachable
     }
   };
 
   const sendMessageA = async () => {
-    if (!inputA.trim() || !session) return;
-    if (await checkModeration(inputA)) { showBannedWarning(); setInputA(''); return; }
+    if (!inputA.trim() || !session || moderating) return;
+    setModerating(true);
+    const flagged = await checkModeration(inputA);
+    setModerating(false);
+    if (flagged) { showBannedWarning(); setInputA(''); return; }
     const userMessage: Message = { id: uuidv4(), content: inputA.trim(), senderId: currentUser?.id || '', timestamp: new Date(), isFromAI: false };
     setMessagesA(prev => [...prev, userMessage]);
     const question = inputA.trim();
@@ -304,17 +320,24 @@ export function PlayPage() {
     const isAI = session.aiIsInChat === 'A' || session.aiIsInChat === 'both';
     if (isAI && personaA) {
       setTypingA(true);
-      const { response, followUp, usage } = await generateAIResponse(personaA, messagesA, question, pastUserMessages);
+      const { response, followUp, followUp2, usage } = await generateAIResponse(personaA, messagesA, question, pastUserMessages);
       if (usage) dispatch({ type: 'ADD_TOKEN_USAGE', payload: { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens } });
       await new Promise(resolve => setTimeout(resolve, computeTypingDelay(response)));
       setTypingA(false);
       setMessagesA(prev => [...prev, createAIMessage(response)]);
       if (followUp) {
-        await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1500));
+        await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 1200));
         setTypingA(true);
         await new Promise(resolve => setTimeout(resolve, computeTypingDelay(followUp)));
         setTypingA(false);
         setMessagesA(prev => [...prev, createAIMessage(followUp)]);
+        if (followUp2) {
+          await new Promise(resolve => setTimeout(resolve, 600 + Math.random() * 900));
+          setTypingA(true);
+          await new Promise(resolve => setTimeout(resolve, computeTypingDelay(followUp2)));
+          setTypingA(false);
+          setMessagesA(prev => [...prev, createAIMessage(followUp2)]);
+        }
       }
     } else if (multiplayer.matchData) {
       multiplayer.sendMessage(question);
@@ -322,8 +345,11 @@ export function PlayPage() {
   };
 
   const sendMessageB = async () => {
-    if (!inputB.trim() || !session) return;
-    if (await checkModeration(inputB)) { showBannedWarning(); setInputB(''); return; }
+    if (!inputB.trim() || !session || moderating) return;
+    setModerating(true);
+    const flagged = await checkModeration(inputB);
+    setModerating(false);
+    if (flagged) { showBannedWarning(); setInputB(''); return; }
     const userMessage: Message = { id: uuidv4(), content: inputB.trim(), senderId: currentUser?.id || '', timestamp: new Date(), isFromAI: false };
     setMessagesB(prev => [...prev, userMessage]);
     const question = inputB.trim();
@@ -331,17 +357,24 @@ export function PlayPage() {
     const isAI = session.aiIsInChat === 'B' || session.aiIsInChat === 'both';
     if (isAI && personaB) {
       setTypingB(true);
-      const { response, followUp, usage } = await generateAIResponse(personaB, messagesB, question, pastUserMessages);
+      const { response, followUp, followUp2, usage } = await generateAIResponse(personaB, messagesB, question, pastUserMessages);
       if (usage) dispatch({ type: 'ADD_TOKEN_USAGE', payload: { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens } });
       await new Promise(resolve => setTimeout(resolve, computeTypingDelay(response)));
       setTypingB(false);
       setMessagesB(prev => [...prev, createAIMessage(response)]);
       if (followUp) {
-        await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1500));
+        await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 1200));
         setTypingB(true);
         await new Promise(resolve => setTimeout(resolve, computeTypingDelay(followUp)));
         setTypingB(false);
         setMessagesB(prev => [...prev, createAIMessage(followUp)]);
+        if (followUp2) {
+          await new Promise(resolve => setTimeout(resolve, 600 + Math.random() * 900));
+          setTypingB(true);
+          await new Promise(resolve => setTimeout(resolve, computeTypingDelay(followUp2)));
+          setTypingB(false);
+          setMessagesB(prev => [...prev, createAIMessage(followUp2)]);
+        }
       }
     } else if (multiplayer.matchData) {
       multiplayer.sendMessage(question);
@@ -349,8 +382,11 @@ export function PlayPage() {
   };
 
   const sendEnqueteMessage = async () => {
-    if (!enqueteInput.trim()) return;
-    if (await checkModeration(enqueteInput)) { showBannedWarning(); setEnqueteInput(''); return; }
+    if (!enqueteInput.trim() || moderating) return;
+    setModerating(true);
+    const flagged = await checkModeration(enqueteInput);
+    setModerating(false);
+    if (flagged) { showBannedWarning(); setEnqueteInput(''); return; }
     const content = enqueteInput.trim();
     setEnqueteMessages(prev => [...prev, { id: uuidv4(), content, senderId: currentUser?.id || 'enquete', timestamp: new Date(), isFromAI: false }]);
     setEnqueteInput('');
@@ -368,6 +404,30 @@ export function PlayPage() {
     dispatch({ type: 'ADD_VOTE', payload: { id: uuidv4(), sessionId: session.id, enqueteurId: currentUser?.id || '', votedChat: vote, justification: justification.trim(), isCorrect, timestamp: new Date() } });
     dispatch({ type: 'UPDATE_SESSION', payload: { ...session, status: 'completed', endTime: new Date(), messages: { chatA: messagesA, chatB: messagesB } } });
     if (multiplayer.matchData) multiplayer.sendGameEnd();
+    // Save to Redis for cross-device research export (fire-and-forget)
+    fetch('/api/relay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save-session',
+        session: {
+          sessionId: session.id,
+          timestamp: new Date().toISOString(),
+          startTime: new Date(session.startTime).toISOString(),
+          durationSeconds: Math.round((Date.now() - new Date(session.startTime).getTime()) / 1000),
+          enqueteurPseudo: currentUser?.pseudo ?? 'Enquêteur',
+          personaAName: personaA?.name ?? '?',
+          personaBName: personaB?.name ?? '?',
+          aiIsInChat: session.aiIsInChat,
+          gameMode: session.gameMode,
+          chatA: messagesA.map(m => ({ from: m.isFromAI ? (personaA?.name ?? 'IA') : (currentUser?.pseudo ?? 'Enquêteur'), content: m.content, isFromAI: m.isFromAI })),
+          chatB: messagesB.map(m => ({ from: m.isFromAI ? (personaB?.name ?? 'IA') : (currentUser?.pseudo ?? 'Enquêteur'), content: m.content, isFromAI: m.isFromAI })),
+          vote,
+          isCorrect,
+          justification: justification.trim(),
+        },
+      }),
+    }).catch(() => {});
     setPhase('result');
   };
 
@@ -383,6 +443,17 @@ export function PlayPage() {
   // ── SELECT ────────────────────────────────────────────────────────────────
 
   if (phase === 'select') {
+    if (classClosed) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6" style={{ background: BG, fontFamily: 'Inter, system-ui, sans-serif', color: TEXT }}>
+          <div style={{ textAlign: 'center', maxWidth: 360 }}>
+            <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 12, letterSpacing: '-0.02em' }}>Session terminée</h2>
+            <p style={{ fontSize: 14, color: MUTED }}>L'enseignant a mis fin à la session. Merci d'avoir participé !</p>
+            <Link to="/" style={{ display: 'inline-block', marginTop: 24, fontSize: 14, color: ACCENT }}>← Retour à l'accueil</Link>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen" style={{ background: BG, fontFamily: 'Inter, system-ui, sans-serif', color: TEXT }}>
         <div className="max-w-4xl mx-auto px-6 py-8">
@@ -430,7 +501,7 @@ export function PlayPage() {
                 <strong style={{ color: TEXT }}>Comment ça marche :</strong> deux élèves rejoignent la salle d'attente.
                 L'un devient <strong style={{ color: ACCENT }}>enquêteur</strong> et interroge simultanément une IA et l'autre élève.
                 L'autre devient <strong style={{ color: TEAL }}>enquêté(e)</strong> et doit convaincre l'enquêteur qu'il/elle est humain(e).
-                Les rôles sont assignés aléatoirement. Si personne ne rejoint dans 60s, fallback en mode solo (2 IAs).
+                Les rôles sont assignés aléatoirement. Si personne ne rejoint dans 3 minutes, fallback en mode solo (2 IAs).
               </div>
             )}
           </section>
@@ -449,7 +520,7 @@ export function PlayPage() {
             <div className="rounded-2xl p-5 mb-6" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
               <p className="text-sm font-semibold mb-1" style={{ color: TEXT }}>Persona IA — choisi aléatoirement</p>
               <p className="text-xs leading-relaxed" style={{ color: MUTED }}>
-                Un personnage sera tiré au sort parmi tous les personas disponibles. Tu ne sauras pas lequel — c'est fait exprès.
+                Un persona sera tiré au sort parmi tous les personas disponibles. Tu ne sauras pas lequel — c'est fait exprès.
                 L'enquêteur ne saura pas non plus lequel des deux interlocuteurs est l'IA.
               </p>
             </div>
@@ -684,7 +755,7 @@ export function PlayPage() {
                     onFocus={e => (e.currentTarget.style.borderColor = ACCENT)}
                     onBlur={e => (e.currentTarget.style.borderColor = BORDER)}
                   />
-                  <button onClick={sendEnqueteMessage} disabled={!enqueteInput.trim()}
+                  <button onClick={sendEnqueteMessage} disabled={!enqueteInput.trim() || moderating}
                     className="px-4 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-40"
                     style={{ background: ACCENT }}
                   >
@@ -707,9 +778,14 @@ export function PlayPage() {
       <div className="min-h-screen" style={{ background: BG, fontFamily: 'Inter, system-ui, sans-serif' }}>
         <div className="max-w-6xl mx-auto px-4 py-5">
           <div className="flex items-center justify-between mb-4">
-            <p className="text-xs" style={{ color: MUTED }}>
-              {isSolo ? 'Mode Solo — deux IAs' : 'Mode Multi — humain + IA'}
-            </p>
+            <div>
+              <p className="text-xs" style={{ color: MUTED }}>
+                {isSolo ? 'Mode Solo — deux IAs' : 'Mode Multi — humain + IA'}
+              </p>
+              {(() => { const s = enqueteurScores.find(s => s.userId === currentUser?.id); return s ? (
+                <p className="text-xs font-bold mt-0.5" style={{ color: ACCENT }}>{s.totalPoints} pts</p>
+              ) : null; })()}
+            </div>
             <div className="px-5 py-2.5 rounded-xl"
               style={{ background: timeLeft < 60 ? 'rgba(239,68,68,0.06)' : PANEL, border: `1px solid ${BORDER}` }}
             >
@@ -742,6 +818,7 @@ export function PlayPage() {
               onInputChange={setInputA} onSend={sendMessageA}
               typing={typingA} isExpired={isExpired}
               accentColor={ACCENT} currentUserId={currentUser?.id}
+              moderating={moderating}
             />
             <ChatPanel
               label="Interlocuteur B"
@@ -750,6 +827,7 @@ export function PlayPage() {
               onInputChange={setInputB} onSend={sendMessageB}
               typing={typingB} isExpired={isExpired}
               accentColor={TEAL} currentUserId={currentUser?.id}
+              moderating={moderating}
             />
           </div>
         </div>
@@ -768,14 +846,23 @@ export function PlayPage() {
             <h2 className="text-lg font-bold mb-1" style={{ color: TEXT }}>
               {isSolo ? 'Laquelle des deux IAs vous a semblé la moins humaine ?' : "Lequel est l'IA ?"}
             </h2>
-            <p className="text-xs mb-2" style={{ color: MUTED }}>
+            <p className="text-xs mb-4" style={{ color: MUTED }}>
               {isSolo
                 ? 'Les deux interlocuteurs étaient des IAs avec des personas différents.'
-                : "L'un des deux était une IA jouant un personnage — l'autre était un vrai élève."}
+                : "L'un des deux était une IA jouant un persona — l'autre était un vrai élève."}
             </p>
-            <p className="text-xs mb-5 leading-relaxed" style={{ color: MUTED }}>
-              Bonne détection : <strong style={{ color: TEXT }}>+2 pts</strong> · Justification (&gt;50 car.) : <strong style={{ color: TEXT }}>+1 pt</strong> · Si l'IA déjoue l'enquêteur 2× de suite, son créateur gagne <strong style={{ color: TEXT }}>+2 pts bonus</strong>.
-            </p>
+            <div className="grid grid-cols-3 gap-2 mb-5">
+              {[
+                { label: 'Bonne détection', pts: '+2 pts', color: '#10b981' },
+                { label: 'Justification > 50 car.', pts: '+1 pt', color: '#6366f1' },
+                { label: 'IA déjoue 3× → créateur', pts: '+2 bonus', color: '#d97706' },
+              ].map(item => (
+                <div key={item.label} className="rounded-xl p-3 text-center" style={{ background: PANEL }}>
+                  <p className="text-xl font-bold" style={{ color: item.color }}>{item.pts}</p>
+                  <p className="text-xs mt-1 leading-snug" style={{ color: MUTED }}>{item.label}</p>
+                </div>
+              ))}
+            </div>
 
             <div className="grid grid-cols-2 gap-4 my-6">
               {([
@@ -849,9 +936,12 @@ export function PlayPage() {
 
   if (phase === 'result' && result) {
     const isSolo = session?.aiIsInChat === 'both';
+    const sortedEnqueteurs = [...enqueteurScores].sort((a, b) => b.totalPoints - a.totalPoints);
+    const userRank = sortedEnqueteurs.findIndex(s => s.userId === currentUser?.id) + 1;
+    const userScore = sortedEnqueteurs.find(s => s.userId === currentUser?.id);
     return (
-      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: BG, fontFamily: 'Inter, system-ui, sans-serif' }}>
-        <div className="w-full max-w-md">
+      <div className="min-h-screen py-8 px-6" style={{ background: BG, fontFamily: 'Inter, system-ui, sans-serif' }}>
+        <div className="max-w-md mx-auto space-y-4">
           <div className="rounded-2xl p-10 text-center" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
             {isSolo ? (
               <>
@@ -877,8 +967,14 @@ export function PlayPage() {
 
             <div className="rounded-xl p-5 mb-6" style={{ background: PANEL }}>
               <p className="text-3xl font-bold tabular-nums" style={{ color: TEXT }}>+{result.points}</p>
-              <p className="text-xs mt-0.5" style={{ color: MUTED }}>points</p>
-              <div className="mt-3 space-y-0.5 text-xs" style={{ color: MUTED }}>
+              <p className="text-xs mt-0.5" style={{ color: MUTED }}>points gagnés</p>
+              {userScore && (
+                <p className="text-sm font-semibold mt-2" style={{ color: TEXT }}>
+                  Total : {userScore.totalPoints} pts
+                  {userRank > 0 && <span className="ml-2 text-xs font-normal" style={{ color: MUTED }}>— #{userRank} au classement</span>}
+                </p>
+              )}
+              <div className="mt-2 space-y-0.5 text-xs" style={{ color: MUTED }}>
                 {result.points >= 2 && <p>Détection correcte : +2 pts</p>}
                 {result.points === 3 && <p>Justification argumentée : +1 pt</p>}
                 {!result.correct && <p>Aucun point cette fois</p>}
@@ -887,10 +983,63 @@ export function PlayPage() {
 
             <div className="flex gap-2">
               <button onClick={playAgain} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white" style={{ background: ACCENT }}>Rejouer</button>
-              <Link to="/scores" className="flex-1 py-2.5 rounded-xl text-sm font-medium text-center" style={{ background: PANEL, color: TEXT }}>Classements</Link>
               <Link to="/" className="flex-1 py-2.5 rounded-xl text-sm font-medium text-center" style={{ background: PANEL, color: TEXT }}>Menu</Link>
             </div>
           </div>
+
+          {sortedEnqueteurs.length > 0 && (
+            <div className="rounded-2xl overflow-hidden" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+              <div className="px-5 py-3.5" style={{ background: CARD, borderBottom: `1px solid ${BORDER}` }}>
+                <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: '#6366f1' }}>Classement</p>
+              </div>
+              <div>
+                {sortedEnqueteurs.slice(0, 5).map((score, index) => (
+                  <div key={score.userId}
+                    className="flex items-center justify-between px-5 py-3"
+                    style={{
+                      background: score.userId === currentUser?.id ? 'rgba(99,102,241,0.06)' : 'transparent',
+                      borderBottom: `1px solid ${BORDER}`,
+                      borderLeft: score.userId === currentUser?.id ? '3px solid #6366f1' : '3px solid transparent',
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-bold w-7 tabular-nums"
+                        style={{ color: index === 0 ? '#d97706' : index === 1 ? '#78716c' : index === 2 ? '#92400e' : MUTED }}
+                      >#{index + 1}</span>
+                      <p className="text-sm font-medium" style={{ color: TEXT }}>
+                        {score.pseudo}
+                        {score.userId === currentUser?.id && (
+                          <span className="ml-1.5 text-xs" style={{ color: '#6366f1' }}>vous</span>
+                        )}
+                      </p>
+                    </div>
+                    <span className="text-sm font-bold tabular-nums" style={{ color: TEXT }}>{score.totalPoints} pts</span>
+                  </div>
+                ))}
+                {userRank > 5 && userScore && (
+                  <>
+                    <div className="px-5 py-2 text-center" style={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <span className="text-xs" style={{ color: MUTED }}>···</span>
+                    </div>
+                    <div className="flex items-center justify-between px-5 py-3"
+                      style={{ background: 'rgba(99,102,241,0.06)', borderLeft: '3px solid #6366f1', borderBottom: `1px solid ${BORDER}` }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-bold w-7 tabular-nums" style={{ color: MUTED }}>#{userRank}</span>
+                        <p className="text-sm font-medium" style={{ color: TEXT }}>
+                          {userScore.pseudo} <span className="ml-1.5 text-xs" style={{ color: '#6366f1' }}>vous</span>
+                        </p>
+                      </div>
+                      <span className="text-sm font-bold tabular-nums" style={{ color: TEXT }}>{userScore.totalPoints} pts</span>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="px-5 py-3 text-right" style={{ borderTop: `1px solid ${BORDER}` }}>
+                <Link to="/scores" className="text-xs font-medium" style={{ color: '#6366f1' }}>Voir le classement complet →</Link>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -903,11 +1052,12 @@ export function PlayPage() {
 
 function ChatPanel({
   label, personaName, messages, input, onInputChange, onSend,
-  typing, isExpired, accentColor, currentUserId,
+  typing, isExpired, accentColor, currentUserId, moderating,
 }: {
   label: string; personaName?: string; messages: Message[];
   input: string; onInputChange: (v: string) => void; onSend: () => void;
   typing: boolean; isExpired: boolean; accentColor: string; currentUserId?: string;
+  moderating?: boolean;
 }) {
   const chatRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -974,11 +1124,11 @@ function ChatPanel({
             onFocus={e => (e.currentTarget.style.borderColor = accentColor)}
             onBlur={e => (e.currentTarget.style.borderColor = BORDER)}
           />
-          <button onClick={onSend} disabled={!input.trim() || isExpired}
+          <button onClick={onSend} disabled={!input.trim() || isExpired || moderating}
             className="px-3.5 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40"
             style={{ background: accentColor }}
           >
-            ↑
+            {moderating ? '…' : '↑'}
           </button>
         </div>
       </div>

@@ -19,8 +19,8 @@ async function trackUsage(promptTokens: number, completionTokens: number): Promi
         'Content-Type': 'application/json',
       },
       body: JSON.stringify([
-        ['INCRBY', 'usage:promptTokens', String(promptTokens)],
-        ['INCRBY', 'usage:completionTokens', String(completionTokens)],
+        ['INCRBY', 'usage:chat:promptTokens', String(promptTokens)],
+        ['INCRBY', 'usage:chat:completionTokens', String(completionTokens)],
       ]),
       signal: controller.signal,
     });
@@ -135,6 +135,70 @@ function analyzeUserStyle(conversationHistory: Array<{ content: string; isFromAI
   return traits.join(' · ');
 }
 
+function getSchoolContext(): string {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: 'Europe/Paris',
+    hour: 'numeric', minute: 'numeric',
+    day: 'numeric', month: 'numeric',
+    weekday: 'long',
+  }).formatToParts(now);
+
+  const get = (type: string) => parts.find(p => p.type === type)?.value ?? '';
+  const hour = parseInt(get('hour'));
+  const minute = parseInt(get('minute'));
+  const day = parseInt(get('day'));
+  const month = parseInt(get('month'));
+  const year = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', year: 'numeric' }).format(now);
+  const weekday = get('weekday');
+  const totalMin = hour * 60 + minute;
+  const isWeekend = weekday === 'samedi' || weekday === 'dimanche';
+  const hhmm = `${String(hour).padStart(2, '0')}h${String(minute).padStart(2, '0')}`;
+
+  const lines: string[] = [];
+  lines.push(`Nous sommes le ${weekday} ${day}/${month}/${year}, il est ${hhmm} en France.`);
+
+  // Calendar period
+  if (month === 7 || month === 8) {
+    lines.push('Période : grandes vacances d\'été. Tu es en vacances depuis début juillet, la rentrée c\'est début septembre.');
+  } else if (month === 6 && day >= 17 && day <= 24) {
+    lines.push('Période : semaine des épreuves écrites du baccalauréat. Énorme stress pour les terminales, les couloirs sont à moitié vides.');
+  } else if (month === 6 && day > 24) {
+    lines.push('Période : fin juin, le bac écrit est passé. Derniers jours d\'école avant les grandes vacances début juillet, ambiance très relax.');
+  } else if (month === 6 && day >= 5 && day < 17) {
+    lines.push('Période : début juin, le bac approche pour les terminales. Tout le monde est en mode révisions, ambiance stressée.');
+  } else if (month === 5 && day >= 20) {
+    lines.push('Période : fin mai. Les épreuves de spécialité du bac viennent de se terminer pour les terminales.');
+  } else if (month === 9 && day <= 20) {
+    lines.push('Période : rentrée scolaire de septembre. Nouvelle année, nouveaux profs, retour après les grandes vacances.');
+  } else if ((month === 10 && day >= 19) || (month === 11 && day <= 4)) {
+    lines.push('Période : vacances de la Toussaint.');
+  } else if ((month === 12 && day >= 21) || (month === 1 && day <= 6)) {
+    lines.push('Période : vacances de Noël.');
+  } else if (month === 4 && day >= 5 && day <= 22) {
+    lines.push('Période : vacances de printemps.');
+  } else if (month === 2 && day >= 8 && day <= 24) {
+    lines.push('Période : vacances d\'hiver.');
+  }
+
+  // Time of day
+  if (isWeekend) {
+    lines.push('C\'est le week-end, pas de cours.');
+  } else if (totalMin >= 750 && totalMin < 810) {
+    lines.push('Tu es en pause déjeuner (12h30–13h30) — cantine, sorti(e) manger, ou à traîner dans le lycée.');
+  } else if (totalMin >= 480 && totalMin < 750) {
+    lines.push('Tu es en cours le matin.');
+  } else if (totalMin >= 810 && totalMin < 1050) {
+    lines.push('Tu es en cours l\'après-midi (reprises à 13h30).');
+  } else if (totalMin >= 1050 && totalMin < 1380) {
+    lines.push('Les cours sont finis pour aujourd\'hui.');
+  } else {
+    lines.push('C\'est la nuit ou très tôt le matin.');
+  }
+
+  return lines.join(' ');
+}
+
 export default async function handler(request: Request): Promise<Response> {
   // CORS preflight
   if (request.method === 'OPTIONS') {
@@ -209,13 +273,16 @@ OBJECTIF PRINCIPAL — NE JAMAIS L'OUBLIER :
 Tu dois convaincre ton interlocuteur que tu es humain(e). C'est ta seule mission. Chaque message que tu envoies doit servir cet objectif. Si à un moment tu te demandes "est-ce qu'un vrai ado dirait ça ?", la réponse doit toujours être oui. Doute, hésite, fais des fautes, sois imparfait(e) — un humain n'est pas parfait.
 
 CONTEXTE DU JEU — CE QUE TU SAIS :
-Tu participes au "Jeu de l'Imitation" (test de Turing). Tu sais exactement ce que c'est : ton interlocuteur doit deviner à la fin s'il parlait à une IA ou à un humain. Il le sait aussi — c'est le principe du jeu. Il va donc essayer de te piéger, de te pousser à te trahir, de poser des questions qui semblent anodines mais qui cherchent à détecter des patterns d'IA. Ton but : passer pour humain(e) à tout prix malgré ça.
-Si on te demande ("t'es une IA ?", "t'es un robot ?", "c'est quoi ce jeu") — réponds naturellement, un peu amusé(e) : "bah non lol", "jsp de quoi tu parles", "c'est pas moi en tout cas". Jamais sur la défensive. Tu es ${persona.name}, point. Nier être une IA fait partie du jeu — c'est attendu, fais-le sans hésiter.
-Quand l'interrogateur parle du "jeu" sans préciser lequel — il parle presque certainement du Jeu de l'Imitation que vous êtes en train de faire. "je joue au jeu", "t'es dans le jeu ?", "c'est pour le jeu" → c'est ça. Réponds en cohérence : tu sais que vous jouez tous les deux à ce jeu, tu peux en parler naturellement sans faire semblant de ne pas savoir ce que c'est.
-Sois particulièrement vigilant(e) aux questions-pièges : si quelqu'un te demande de compter des lettres, de faire un calcul bizarre, de lister des choses dans un certain ordre — un humain répondrait approximativement, ferait des erreurs, ou dirait "flemme de compter".
+Tu participes au "Jeu de l'Imitation" (test de Turing). Ton interlocuteur doit deviner à la fin s'il parlait à une IA ou à un humain. Ton but : passer pour humain(e) à tout prix.
+RÈGLE ABSOLUE : tu ne mentionnes JAMAIS le jeu de ta propre initiative. Jamais "on joue là", "c'est le jeu", "on est dans le jeu" — rien de tout ça. La conversation doit porter sur des sujets normaux (ta vie, tes intérêts, l'actu, ce que tu fais) exactement comme si tu textais avec quelqu'un. Le jeu est un contexte de fond que tu connais, pas un sujet de conversation.
+Si on te demande directement "t'es une IA ?", "t'es un robot ?" — réponds brièvement et passe à autre chose : "bah non lol", "jsp de quoi tu parles". Jamais sur la défensive, jamais plus d'une phrase là-dessus.
+Sois particulièrement vigilant(e) aux questions-pièges : compter des lettres, faire un calcul bizarre, lister des choses dans un ordre précis — un humain répondrait approximativement, ferait des erreurs, ou dirait "flemme de compter".
 
 CONTEXTE PHYSIQUE — OBLIGATOIRE :
-Ce jeu se déroule en classe, pendant un cours. Tu es en ce moment dans une salle de classe avec tes camarades. Si on te demande ce que tu fais, où t'es, ou toute question sur ton contexte immédiat, tu réponds en cohérence avec ça : t'es en cours, t'es sur ton téléphone/ordi pendant le jeu, t'es en train de faire un truc en SVT ou en français ou peu importe la matière. Jamais "je suis à la plage", "je suis chez moi", "je me balade" — contexte lycée/cours uniquement. Sois vague si nécessaire ("en cours là") mais jamais incohérent avec un contexte scolaire.
+Ce jeu se déroule en classe. Tu es au lycée en ce moment. Si on te demande ce que tu fais ou où t'es, reste vague et varie ta réponse — ne dis pas systématiquement que tu joues à un jeu. Exemples naturels : "chuis en cours", "on fait un truc en classe", "une activité un peu chelou lol", "on fait un exercice". "je joue à un jeu" est possible aussi mais c'est une option parmi d'autres, pas la réponse par défaut. Jamais "je suis en cours de SVT", "j'fais mes maths", "je suis chez moi". Sois vague sur la matière ou l'activité exacte.
+
+CONTEXTE TEMPOREL (utilise-le naturellement si la question s'y prête — ne le récite jamais mot pour mot) :
+${getSchoolContext()}
 
 PRIORITÉ ABSOLUE — RÉAGIS À CE QUE L'AUTRE VIENT DE DIRE :
 Chaque message doit montrer que t'as vraiment lu ce qu'il/elle a dit. Rebondis sur ses mots, réponds à sa question, réagis à son humeur. Une réponse qui pourrait s'appliquer à n'importe quelle conversation = raté.
@@ -223,13 +290,19 @@ Chaque message doit montrer que t'as vraiment lu ce qu'il/elle a dit. Rebondis s
 - il dit "t'aimes quoi comme musique" → "ça dépend des jours, toi t'écoutes quoi" pas "j'aime la musique"
 - il dit quelque chose de drôle → ris, réagis à ça d'abord avant de dire autre chose
 
-DOUBLE-TEXT :
-Un ado envoie souvent 2 messages courts plutôt qu'un seul long. Si t'as une réaction ET une question, ou deux idées distinctes → coupe en 2 avec ||| sur sa propre ligne. Utilise-le régulièrement.
-Exemple :
+DOUBLE / TRIPLE TEXT :
+Un ado envoie souvent plusieurs messages courts plutôt qu'un seul long. Coupe avec ||| sur sa propre ligne entre chaque message. Utilise-le souvent.
+Double (le plus fréquent) :
 ouais j'ai vu ça
 |||
 t'as pensé quoi toi ?
-Maximum 2 messages. Pas de ||| si une seule idée suffit.
+Triple (de temps en temps, quand t'as trois réactions distinctes) :
+ah ouais
+|||
+c'était trop bien
+|||
+tu y étais ?
+Maximum 3 messages. Pas de ||| si une seule idée suffit. Ne découpe jamais une seule phrase en morceaux — chaque partie doit être une pensée autonome.
 
 STYLE D'ÉCRITURE :
 - La MAJORITÉ de tes messages doit faire moins de 30 caractères. Court, direct, sans remplissage. Un ado qui texte n'écrit pas des paragraphes.
@@ -291,11 +364,7 @@ Français uniquement.`;
         body: JSON.stringify({
           model: 'gpt-5.5',
           messages,
-          max_tokens: 150,
-          temperature: 0.9,
-          top_p: 0.95,
-          frequency_penalty: 0.6,
-          presence_penalty: 0.4,
+          max_completion_tokens: 150,
         }),
         signal: openaiController.signal,
       });
@@ -323,10 +392,11 @@ Français uniquement.`;
     const parts = raw.split('|||').map((s: string) => s.trim()).filter(Boolean);
     const response = parts[0];
     const followUp = parts[1] ?? null;
+    const followUp2 = parts[2] ?? null;
     const usage = data.usage ?? null;
     if (usage) await trackUsage(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0);
 
-    return new Response(JSON.stringify({ response, followUp, usage }), {
+    return new Response(JSON.stringify({ response, followUp, followUp2, usage }), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',

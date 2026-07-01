@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from '../context/GameContext';
 
-const BG = '#faf7f2';
+const BG = '#f5f0e8';
 const CARD = '#ffffff';
 const PANEL = '#f5f0e8';
 const BORDER = 'rgba(0,0,0,0.08)';
@@ -44,34 +44,41 @@ export function DashboardPage() {
     classFilter === null || visiblePersonaIds.has(s.personaId)
   );
 
-  const [globalUsage, setGlobalUsage] = useState<{ promptTokens: number; completionTokens: number } | null>(null);
+  const [globalUsage, setGlobalUsage] = useState<{
+    chat: { promptTokens: number; completionTokens: number };
+    persona: { promptTokens: number; completionTokens: number };
+  } | null>(null);
   const [activeTab, setActiveTab] = useState<string>('overview');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
-  const [resetingUserId, setResetingUserId] = useState<string | null>(null);
-  const [newPassword, setNewPassword] = useState('');
-  const [resetResult, setResetResult] = useState<{ id: string; ok: boolean } | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<{ name: string; age: string; description: string; traits: string; interests: string; speakingStyle: string }>({ name: '', age: '', description: '', traits: '', interests: '', speakingStyle: '' });
+  const [resettingPasswordId, setResettingPasswordId] = useState<string | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [resetStatus, setResetStatus] = useState<{ id: string; ok: boolean } | null>(null);
+  const [serverExporting, setServerExporting] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [closingClass, setClosingClass] = useState(false);
+  const [classClosed, setClassClosed] = useState(false);
 
-  const handleTeacherResetPassword = async (user: { id: string; pseudo: string; classId?: string }) => {
-    if (newPassword.trim().length < 8) return;
+  const handleTeacherReset = async (user: typeof visibleStudents[0]) => {
+    if (newPasswordInput.trim().length < 8) return;
     try {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'teacher-reset-password', pseudo: user.pseudo, classId: user.classId, newPassword: newPassword.trim() }),
+        body: JSON.stringify({ action: 'teacher-reset-password', pseudo: user.pseudo, classId: user.classId, newPassword: newPasswordInput.trim() }),
       });
       const data = await res.json() as { result: string };
-      setResetResult({ id: user.id, ok: data.result === 'success' });
+      setResetStatus({ id: user.id, ok: data.result === 'success' });
     } catch {
-      setResetResult({ id: user.id, ok: false });
+      setResetStatus({ id: user.id, ok: false });
     }
-    setResetingUserId(null);
-    setNewPassword('');
-    setTimeout(() => setResetResult(null), 3000);
+    setResettingPasswordId(null);
+    setNewPasswordInput('');
+    setTimeout(() => setResetStatus(null), 3000);
   };
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{ name: string; age: string; description: string; traits: string; interests: string; speakingStyle: string }>({ name: '', age: '', description: '', traits: '', interests: '', speakingStyle: '' });
 
   const startEdit = (p: typeof personas[0]) => {
     setEditingId(p.id);
@@ -92,12 +99,15 @@ export function DashboardPage() {
     })
       .then(res => res.json())
       .then(data => {
-        if (typeof data.promptTokens === 'number') setGlobalUsage(data);
+        if (data.chat && data.persona) setGlobalUsage(data);
       })
       .catch(() => {});
   }, [isAdmin]);
 
-  const estimatedCostUSD = ((globalUsage?.promptTokens ?? 0) * 0.00000015 + (globalUsage?.completionTokens ?? 0) * 0.0000006);
+  // gpt-4o-mini: $0.15/1M input, $0.60/1M output
+  const personaCostUSD = ((globalUsage?.persona.promptTokens ?? 0) * 0.00000015 + (globalUsage?.persona.completionTokens ?? 0) * 0.0000006);
+  // gpt-5.5: $5.00/1M input, $30.00/1M output (standard)
+  const chatCostUSD = ((globalUsage?.chat.promptTokens ?? 0) * 0.000005 + (globalUsage?.chat.completionTokens ?? 0) * 0.00003);
 
   const completedSessions = visibleSessions;
   const totalVotes = visibleVotes.length;
@@ -138,6 +148,172 @@ export function DashboardPage() {
       detectionRate: data.sessions > 0 ? (data.correct / data.sessions) * 100 : 0,
     }))
     .sort((a, b) => b.detectionRate - a.detectionRate);
+
+  type ResearchSession = {
+    sessionId: string; timestamp: string; startTime?: string; durationSeconds?: number;
+    enqueteurPseudo: string; personaAName: string; personaBName: string;
+    aiIsInChat: string; gameMode: string;
+    chatA: { from: string; content: string; isFromAI: boolean }[];
+    chatB: { from: string; content: string; isFromAI: boolean }[];
+    vote: string; isCorrect: boolean; justification: string;
+  };
+
+  const fmtDuration = (secs?: number) => {
+    if (secs == null) return '—';
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m > 0 ? `${m} min ${String(s).padStart(2, '0')} sec` : `${s} sec`;
+  };
+
+  const exportServerTXT = async () => {
+    setServerExporting(true);
+    try {
+      const res = await fetch('/api/relay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get-sessions' }) });
+      const data = await res.json() as { sessions: ResearchSession[] };
+      const sessions = (data.sessions || []).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      const dateStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      let doc = `HISTORIQUE DES CONVERSATIONS — JEU DE L'IMITATION\n`;
+      doc += `Exporté le ${dateStr} · ${sessions.length} session${sessions.length !== 1 ? 's' : ''} avec vote\n`;
+      doc += `${'='.repeat(64)}\n\n`;
+      if (sessions.length === 0) {
+        doc += 'Aucune session enregistrée sur le serveur.\n';
+      } else {
+        sessions.forEach((s, idx) => {
+          const sessionDate = new Date(s.timestamp).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+          doc += `SESSION ${idx + 1} — ${sessionDate}\n`;
+          doc += `${'-'.repeat(64)}\n`;
+          doc += `Enquêteur : ${s.enqueteurPseudo}\n`;
+          doc += `Persona A : ${s.personaAName}\n`;
+          doc += `Persona B : ${s.personaBName}\n`;
+          doc += `IA dans   : Chat ${s.aiIsInChat}\n`;
+          doc += `Mode      : ${s.gameMode}\n`;
+          doc += `Durée     : ${fmtDuration(s.durationSeconds)}\n\n`;
+          const labelA = s.aiIsInChat === 'A' || s.aiIsInChat === 'both' ? '[ CHAT A — IA ]' : '[ CHAT A — HUMAIN ]';
+          doc += `${labelA}\n`;
+          if (s.chatA.length === 0) doc += '  (aucun message)\n';
+          else s.chatA.forEach(m => { doc += `  ${m.from} : ${m.content}\n`; });
+          doc += '\n';
+          const labelB = s.aiIsInChat === 'B' || s.aiIsInChat === 'both' ? '[ CHAT B — IA ]' : '[ CHAT B — HUMAIN ]';
+          doc += `${labelB}\n`;
+          if (s.chatB.length === 0) doc += '  (aucun message)\n';
+          else s.chatB.forEach(m => { doc += `  ${m.from} : ${m.content}\n`; });
+          doc += '\n';
+          const verdict = s.isCorrect
+            ? `Chat ${s.vote} voté comme IA — CORRECT ✓`
+            : `Chat ${s.vote} voté comme IA — INCORRECT ✗ (l'IA était dans Chat ${s.aiIsInChat})`;
+          doc += `VERDICT      : ${verdict}\n`;
+          doc += `JUSTIFICATION: ${s.justification || '(aucune)'}\n`;
+          doc += `\n${'='.repeat(64)}\n\n`;
+        });
+      }
+      const blob = new Blob([doc], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url;
+      a.download = `conversations-serveur-${new Date().toISOString().split('T')[0]}.txt`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch (e) { console.error(e); } finally { setServerExporting(false); }
+  };
+
+  const exportServerCSV = async () => {
+    setServerExporting(true);
+    try {
+      const res = await fetch('/api/relay', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get-sessions' }) });
+      const data = await res.json() as { sessions: ResearchSession[] };
+      const sessions = (data.sessions || []).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      const headers = ['Date', 'Heure', 'Durée', 'Enquêteur', 'Persona A', 'Persona B', 'IA dans', 'Mode', 'Vote', 'Correct', 'Justification', 'Transcript Chat A', 'Transcript Chat B'];
+      const rows = sessions.map(s => {
+        const tA = s.chatA.map(m => `${m.from}: ${m.content}`).join(' | ');
+        const tB = s.chatB.map(m => `${m.from}: ${m.content}`).join(' | ');
+        const dt = new Date(s.timestamp);
+        return [
+          dt.toLocaleDateString('fr-FR'),
+          dt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+          fmtDuration(s.durationSeconds),
+          s.enqueteurPseudo, s.personaAName, s.personaBName,
+          s.aiIsInChat, s.gameMode, s.vote,
+          s.isCorrect ? 'Oui' : 'Non',
+          `"${s.justification.replace(/"/g, '""')}"`,
+          `"${tA.replace(/"/g, '""')}"`,
+          `"${tB.replace(/"/g, '""')}"`,
+        ];
+      });
+      const csv = '﻿' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url;
+      a.download = `conversations-serveur-${new Date().toISOString().split('T')[0]}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch (e) { console.error(e); } finally { setServerExporting(false); }
+  };
+
+  const closeClass = async () => {
+    setClosingClass(true);
+    const top3 = [...visibleEnqueteurScores]
+      .sort((a, b) => b.totalPoints - a.totalPoints)
+      .slice(0, 3)
+      .map((s, i) => ({ rank: i + 1, pseudo: s.pseudo, points: s.totalPoints }));
+    try {
+      await fetch('/api/relay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'close-class', classId: currentUser?.classId, podium: top3 }),
+      });
+      setClassClosed(true);
+    } catch (e) { console.error(e); }
+    setClosingClass(false);
+    setShowCloseConfirm(false);
+  };
+
+  const downloadSessionTXT = (session: typeof completedSessions[0]) => {
+    const vote = visibleVotes.find(v => v.sessionId === session.id);
+    const pA = personas.find(p => p.id === session.personaIdA);
+    const pB = personas.find(p => p.id === session.personaIdB);
+    const enqueteur = knownUsers.find(u => u.id === session.enqueteurId);
+    const sessionDate = new Date(session.startTime).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    let doc = `SESSION — ${sessionDate}\n${'='.repeat(64)}\n`;
+    doc += `Enquêteur : ${enqueteur?.pseudo || session.enqueteurId}\n`;
+    doc += `Persona A : ${pA?.name || '?'}${pA ? `, ${pA.age} ans` : ''}\n`;
+    doc += `Persona B : ${pB?.name || '?'}${pB ? `, ${pB.age} ans` : ''}\n`;
+    doc += `IA dans   : Chat ${session.aiIsInChat}\n\n`;
+
+    const labelA = session.aiIsInChat === 'A' || session.aiIsInChat === 'both' ? '[ CHAT A — IA ]' : '[ CHAT A — HUMAIN ]';
+    doc += `${labelA}\n`;
+    if (session.messages.chatA.length === 0) doc += '  (aucun message)\n';
+    else session.messages.chatA.forEach(msg => {
+      const sender = msg.isFromAI ? (pA?.name || 'IA') : (enqueteur?.pseudo || 'Enquêteur');
+      doc += `  ${sender} : ${msg.content}\n`;
+    });
+    doc += '\n';
+
+    const labelB = session.aiIsInChat === 'B' || session.aiIsInChat === 'both' ? '[ CHAT B — IA ]' : '[ CHAT B — HUMAIN ]';
+    doc += `${labelB}\n`;
+    if (session.messages.chatB.length === 0) doc += '  (aucun message)\n';
+    else session.messages.chatB.forEach(msg => {
+      const sender = msg.isFromAI ? (pB?.name || 'IA') : (enqueteur?.pseudo || 'Enquêteur');
+      doc += `  ${sender} : ${msg.content}\n`;
+    });
+    doc += '\n';
+
+    if (vote) {
+      const verdict = vote.isCorrect
+        ? `Chat ${vote.votedChat} voté comme IA — CORRECT ✓`
+        : `Chat ${vote.votedChat} voté comme IA — INCORRECT ✗ (l'IA était dans Chat ${session.aiIsInChat})`;
+      doc += `VERDICT      : ${verdict}\n`;
+      doc += `JUSTIFICATION: ${vote.justification || '(aucune)'}\n`;
+    } else {
+      doc += `VERDICT      : Aucun vote enregistré\n`;
+    }
+
+    const blob = new Blob([doc], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeName = (enqueteur?.pseudo || 'session').replace(/[^a-z0-9]/gi, '_');
+    a.download = `session-${safeName}-${new Date(session.startTime).toISOString().split('T')[0]}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const exportData = () => {
     const data = {
@@ -325,17 +501,34 @@ export function DashboardPage() {
           <div className="flex items-center gap-4">
             <span className="text-2xl font-bold tracking-tight" style={{ color: TEXT }}>Jeu de l'Imitation</span>
             <span style={{ color: MUTED }}>·</span>
-            <h1 className="text-xl font-bold" style={{ color: TEXT }}>Enseignants / Administrateurs</h1>
+            <h1 className="text-xl font-bold" style={{ color: TEXT }}>Enseignants</h1>
           </div>
-          <button
-            onClick={logout}
-            className="text-sm transition-colors px-3 py-1.5 rounded-lg"
-            style={{ color: MUTED, border: `1px solid ${BORDER}` }}
-            onMouseEnter={e => (e.currentTarget.style.color = TEXT)}
-            onMouseLeave={e => (e.currentTarget.style.color = MUTED)}
-          >
-            Se déconnecter
-          </button>
+          <div className="flex items-center gap-2">
+            {classClosed ? (
+              <span className="text-xs px-3 py-1.5 rounded-lg font-medium" style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5' }}>
+                Session terminée
+              </span>
+            ) : (
+              <button
+                onClick={() => setShowCloseConfirm(true)}
+                className="text-sm px-3 py-1.5 rounded-lg transition-colors"
+                style={{ color: '#dc2626', border: '1px solid #fca5a5', background: '#fef2f2' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#fee2e2')}
+                onMouseLeave={e => (e.currentTarget.style.background = '#fef2f2')}
+              >
+                Terminer la session
+              </button>
+            )}
+            <button
+              onClick={logout}
+              className="text-sm transition-colors px-3 py-1.5 rounded-lg"
+              style={{ color: MUTED, border: `1px solid ${BORDER}` }}
+              onMouseEnter={e => (e.currentTarget.style.color = TEXT)}
+              onMouseLeave={e => (e.currentTarget.style.color = MUTED)}
+            >
+              Se déconnecter
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -374,16 +567,23 @@ export function DashboardPage() {
             </div>
 
             {isAdmin && (
-              <div className="mb-8 rounded-2xl px-6 py-5 flex items-center justify-between" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: MUTED }}>Coût estimé OpenAI (gpt-4o-mini)</p>
+              <div className="mb-4 grid grid-cols-2 gap-3">
+                <div className="rounded-2xl px-5 py-4" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                  <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: MUTED }}>Création de personas</p>
+                  <p className="text-xs mb-3" style={{ color: MUTED }}>gpt-4o-mini</p>
+                  <p className="text-2xl font-bold tabular-nums mb-1" style={{ color: '#059669' }}>${personaCostUSD.toFixed(4)}</p>
                   <p className="text-xs" style={{ color: MUTED }}>
-                    {(globalUsage?.promptTokens ?? 0).toLocaleString()} tokens entrée · {(globalUsage?.completionTokens ?? 0).toLocaleString()} tokens sortie
+                    {(globalUsage?.persona.promptTokens ?? 0).toLocaleString()} in · {(globalUsage?.persona.completionTokens ?? 0).toLocaleString()} out
                   </p>
                 </div>
-                <p className="text-3xl font-bold tabular-nums" style={{ color: '#059669' }}>
-                  ${estimatedCostUSD.toFixed(4)}
-                </p>
+                <div className="rounded-2xl px-5 py-4" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                  <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: MUTED }}>Chatbot en jeu</p>
+                  <p className="text-xs mb-3" style={{ color: MUTED }}>gpt-5.5</p>
+                  <p className="text-2xl font-bold tabular-nums mb-1" style={{ color: '#059669' }}>${chatCostUSD.toFixed(4)}</p>
+                  <p className="text-xs" style={{ color: MUTED }}>
+                    {(globalUsage?.chat.promptTokens ?? 0).toLocaleString()} in · {(globalUsage?.chat.completionTokens ?? 0).toLocaleString()} out
+                  </p>
+                </div>
               </div>
             )}
 
@@ -444,7 +644,7 @@ export function DashboardPage() {
               {/* Ranked personas */}
               <div className="rounded-2xl p-6" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
                 <p className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: MUTED }}>
-                  Personnages les plus convaincants
+                  Personas les plus convaincants
                 </p>
                 <p className="text-xs mb-5" style={{ color: MUTED }}>Ceux qui ont le mieux trompé les enquêteurs</p>
                 {rankedPersonas.length === 0 ? (
@@ -566,7 +766,7 @@ export function DashboardPage() {
                               <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: `${ACCENT}15`, color: ACCENT }}>vous</span>
                             )}
                             <span className="text-xs" style={{ color: MUTED }}>
-                              {groupSessionList.length} session{groupSessionList.length !== 1 ? 's' : ''} · {groupPersonaCount} personnage{groupPersonaCount !== 1 ? 's' : ''}
+                              {groupSessionList.length} session{groupSessionList.length !== 1 ? 's' : ''} · {groupPersonaCount} persona{groupPersonaCount !== 1 ? 's' : ''}
                             </span>
                           </div>
                           <svg
@@ -603,43 +803,35 @@ export function DashboardPage() {
                                   </div>
                                   {!isSelf && (
                                     <div className="flex items-center gap-1 shrink-0 ml-4">
-                                      {resetResult?.id === user.id && (
-                                        <span className="text-xs px-2 py-1 rounded-lg" style={{ background: resetResult.ok ? '#f0fdf4' : '#fef2f2', color: resetResult.ok ? '#15803d' : '#b91c1c' }}>
-                                          {resetResult.ok ? '✓ MDP réinitialisé' : '✗ Échec'}
+                                      {resetStatus?.id === user.id && (
+                                        <span className="text-xs px-2 py-1 rounded-lg" style={{ background: resetStatus.ok ? '#dcfce7' : '#fee2e2', color: resetStatus.ok ? '#16a34a' : '#dc2626' }}>
+                                          {resetStatus.ok ? 'Mot de passe modifié' : 'Erreur'}
                                         </span>
                                       )}
-                                      {resetingUserId === user.id ? (
+                                      {resettingPasswordId === user.id ? (
                                         <>
                                           <input
-                                            type="text"
-                                            value={newPassword}
-                                            onChange={e => setNewPassword(e.target.value)}
-                                            placeholder="Nouveau MDP (8+ car.)"
-                                            className="px-2 py-1 rounded-lg text-xs outline-none"
-                                            style={{ background: CARD, border: `1px solid ${BORDER}`, color: TEXT, width: '160px' }}
+                                            type="password"
+                                            placeholder="Nouveau mot de passe"
+                                            value={newPasswordInput}
+                                            onChange={e => setNewPasswordInput(e.target.value)}
+                                            className="px-2 py-1 rounded-lg text-xs border"
+                                            style={{ background: PANEL, color: TEXT, borderColor: BORDER, width: 160 }}
+                                            autoFocus
                                           />
                                           <button
-                                            onClick={() => handleTeacherResetPassword(user)}
-                                            disabled={newPassword.trim().length < 8}
-                                            className="px-2.5 py-1 rounded-lg font-medium text-white disabled:opacity-40"
-                                            style={{ background: ACCENT }}
+                                            onClick={() => handleTeacherReset(user)}
+                                            disabled={newPasswordInput.trim().length < 8}
+                                            className="px-2.5 py-1 rounded-lg font-medium text-white"
+                                            style={{ background: newPasswordInput.trim().length >= 8 ? ACCENT : MUTED }}
                                           >OK</button>
                                           <button
-                                            onClick={() => { setResetingUserId(null); setNewPassword(''); }}
+                                            onClick={() => { setResettingPasswordId(null); setNewPasswordInput(''); }}
                                             className="px-2.5 py-1 rounded-lg"
                                             style={{ background: PANEL, color: MUTED }}
                                           >✕</button>
                                         </>
-                                      ) : (
-                                        <button
-                                          onClick={() => { setResetingUserId(user.id); setNewPassword(''); }}
-                                          className="px-2.5 py-1 rounded-lg transition-colors text-xs"
-                                          style={{ background: PANEL, color: MUTED }}
-                                          onMouseEnter={e => { e.currentTarget.style.background = '#ede9fe'; e.currentTarget.style.color = ACCENT; }}
-                                          onMouseLeave={e => { e.currentTarget.style.background = PANEL; e.currentTarget.style.color = MUTED; }}
-                                        >MDP</button>
-                                      )}
-                                      {deletingUserId === user.id ? (
+                                      ) : deletingUserId === user.id ? (
                                         <>
                                           <button
                                             onClick={() => { dispatch({ type: 'DELETE_USER', payload: user.id }); setDeletingUserId(null); }}
@@ -653,13 +845,22 @@ export function DashboardPage() {
                                           >Annuler</button>
                                         </>
                                       ) : (
-                                        <button
-                                          onClick={() => setDeletingUserId(user.id)}
-                                          className="px-2.5 py-1 rounded-lg transition-colors"
-                                          style={{ background: PANEL, color: MUTED }}
-                                          onMouseEnter={e => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#dc2626'; }}
-                                          onMouseLeave={e => { e.currentTarget.style.background = PANEL; e.currentTarget.style.color = MUTED; }}
-                                        >Supprimer</button>
+                                        <>
+                                          <button
+                                            onClick={() => { setResettingPasswordId(user.id); setNewPasswordInput(''); }}
+                                            className="px-2.5 py-1 rounded-lg transition-colors"
+                                            style={{ background: PANEL, color: MUTED }}
+                                            onMouseEnter={e => { e.currentTarget.style.background = `${ACCENT}20`; e.currentTarget.style.color = ACCENT; }}
+                                            onMouseLeave={e => { e.currentTarget.style.background = PANEL; e.currentTarget.style.color = MUTED; }}
+                                          >Réinitialiser mdp</button>
+                                          <button
+                                            onClick={() => setDeletingUserId(user.id)}
+                                            className="px-2.5 py-1 rounded-lg transition-colors"
+                                            style={{ background: PANEL, color: MUTED }}
+                                            onMouseEnter={e => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#dc2626'; }}
+                                            onMouseLeave={e => { e.currentTarget.style.background = PANEL; e.currentTarget.style.color = MUTED; }}
+                                          >Supprimer</button>
+                                        </>
                                       )}
                                     </div>
                                   )}
@@ -704,7 +905,7 @@ export function DashboardPage() {
                                 if (groupPersonas.length === 0) return null;
                                 return (
                                   <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${BORDER}` }}>
-                                    <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Personnages créés</p>
+                                    <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: MUTED }}>Personas créés</p>
                                     <div className="space-y-1.5">
                                       {groupPersonas.map(p => {
                                         const ps = visiblePersonaScores.find(s => s.personaId === p.id);
@@ -742,7 +943,7 @@ export function DashboardPage() {
                 </div>
               )}
               <p className="text-xs mt-4" style={{ color: MUTED }}>
-                Supprimer un compte supprime aussi ses personnages, ses sessions et ses votes.
+                Supprimer un compte supprime aussi ses personas, ses sessions et ses votes.
               </p>
             </div>
           );
@@ -763,7 +964,7 @@ export function DashboardPage() {
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
-                      {['ID', 'Personna', 'IA dans', 'Messages', 'Date', 'Résultat', 'Justification'].map(h => (
+                      {['ID', 'Personna', 'IA dans', 'Messages', 'Date', 'Résultat', 'Justification', ''].map(h => (
                         <th key={h} className="px-5 py-3 text-xs font-semibold uppercase tracking-wider" style={{ color: MUTED }}>{h}</th>
                       ))}
                     </tr>
@@ -795,6 +996,17 @@ export function DashboardPage() {
                               : <span style={{ color: MUTED }}>—</span>
                             }
                           </td>
+                          <td className="px-3 py-3">
+                            <button
+                              onClick={() => downloadSessionTXT(session)}
+                              className="text-xs px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap"
+                              style={{ background: PANEL, color: MUTED, border: `1px solid ${BORDER}` }}
+                              onMouseEnter={e => { e.currentTarget.style.background = `${ACCENT}10`; e.currentTarget.style.color = ACCENT; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = PANEL; e.currentTarget.style.color = MUTED; }}
+                            >
+                              ↓ .txt
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -808,9 +1020,9 @@ export function DashboardPage() {
         {/* Personas */}
         {activeTab === 'personas' && (
           <div>
-            <p className="text-xs mb-4" style={{ color: MUTED }}>{visiblePersonas.length} personnage{visiblePersonas.length !== 1 ? 's' : ''} créé{visiblePersonas.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs mb-4" style={{ color: MUTED }}>{visiblePersonas.length} persona{visiblePersonas.length !== 1 ? 's' : ''} créé{visiblePersonas.length !== 1 ? 's' : ''}</p>
             {visiblePersonas.length === 0 ? (
-              <p className="py-8 text-sm" style={{ color: MUTED }}>Aucun personnage créé pour l'instant.</p>
+              <p className="py-8 text-sm" style={{ color: MUTED }}>Aucun persona créé pour l'instant.</p>
             ) : (
               <div className="space-y-3">
                 {visiblePersonas.map(persona => {
@@ -997,6 +1209,40 @@ export function DashboardPage() {
         {/* Export */}
         {activeTab === 'export' && (
           <div className="space-y-4">
+            {/* Research export — server-side */}
+            <div className="rounded-2xl p-6" style={{ background: CARD, border: `2px solid ${ACCENT}` }}>
+              <div className="flex items-start justify-between mb-1">
+                <h3 className="text-sm font-bold" style={{ color: TEXT }}>Export recherche (serveur)</h3>
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: `${ACCENT}15`, color: ACCENT }}>Toutes les classes</span>
+              </div>
+              <p className="text-xs mb-4" style={{ color: MUTED }}>
+                Conversations collectées depuis tous les appareils — uniquement les sessions où l'élève a voté.
+                Inclut les transcriptions complètes et les justifications.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  onClick={exportServerTXT}
+                  disabled={serverExporting}
+                  className="py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
+                  style={{ background: ACCENT }}
+                  onMouseEnter={e => { if (!serverExporting) e.currentTarget.style.background = '#4f46e5'; }}
+                  onMouseLeave={e => (e.currentTarget.style.background = ACCENT)}
+                >
+                  {serverExporting ? 'Chargement…' : 'Télécharger .txt (lisible)'}
+                </button>
+                <button
+                  onClick={exportServerCSV}
+                  disabled={serverExporting}
+                  className="py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40"
+                  style={{ background: PANEL, border: `1px solid ${BORDER}`, color: ACCENT }}
+                  onMouseEnter={e => { if (!serverExporting) e.currentTarget.style.background = `${ACCENT}10`; }}
+                  onMouseLeave={e => (e.currentTarget.style.background = PANEL)}
+                >
+                  {serverExporting ? 'Chargement…' : 'Télécharger .csv (Excel)'}
+                </button>
+              </div>
+            </div>
+
             {/* Conversations */}
             <div className="rounded-2xl p-6" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
               <h3 className="text-sm font-bold mb-1" style={{ color: TEXT }}>Historique des conversations</h3>
@@ -1072,6 +1318,61 @@ export function DashboardPage() {
           </div>
         )}
       </div>
+
+      {showCloseConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.55)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 20, padding: '2rem',
+            maxWidth: 460, width: '100%',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            fontFamily: 'Inter, system-ui, sans-serif',
+          }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1c1917', marginBottom: 12 }}>
+              Terminer la session ?
+            </h2>
+            <p style={{ fontSize: 14, color: '#78716c', marginBottom: 16, lineHeight: 1.6 }}>
+              Cette action est <strong style={{ color: '#1c1917' }}>irréversible</strong>. Elle va :
+            </p>
+            <ul style={{ fontSize: 14, color: '#78716c', lineHeight: 2.2, paddingLeft: 20, marginBottom: 28 }}>
+              <li>Empêcher les élèves de lancer de nouvelles parties</li>
+              <li>Afficher le podium final sur leurs écrans</li>
+              <li>Arrêter la collecte de données pour cette classe</li>
+            </ul>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setShowCloseConfirm(false)}
+                disabled={closingClass}
+                style={{
+                  padding: '10px 20px', borderRadius: 12,
+                  border: `1px solid ${BORDER}`, background: PANEL,
+                  color: MUTED, fontWeight: 600, cursor: 'pointer',
+                  fontSize: 14, fontFamily: 'inherit',
+                }}
+              >
+                Annuler
+              </button>
+              <button
+                onClick={closeClass}
+                disabled={closingClass}
+                style={{
+                  padding: '10px 20px', borderRadius: 12,
+                  border: 'none', background: '#dc2626',
+                  color: 'white', fontWeight: 600,
+                  cursor: closingClass ? 'not-allowed' : 'pointer',
+                  fontSize: 14, fontFamily: 'inherit',
+                  opacity: closingClass ? 0.7 : 1,
+                }}
+              >
+                {closingClass ? 'Fermeture…' : 'Terminer la session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -406,16 +406,80 @@ export default async function handler(request: Request): Promise<Response> {
       }
 
       // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+      // SAVE SESSION — persist conversation + vote for research export
+      // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+      case 'save-session': {
+        const { session } = body as { session: Record<string, unknown> };
+        if (!session?.sessionId) return json({ error: 'Missing sessionId' }, 400);
+        const id = session.sessionId as string;
+        await redisPipeline([
+          ['SET', `research:session:${id}`, JSON.stringify(session)],
+          ['SADD', 'research:sessions', id],
+        ]);
+        return json({ ok: true });
+      }
+
+      // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+      // GET SESSIONS — retrieve all saved research sessions
+      // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+      case 'get-sessions': {
+        const ids = await redis('SMEMBERS', 'research:sessions') as string[];
+        if (!ids || ids.length === 0) return json({ sessions: [] });
+        const results = await redisPipeline(ids.map(id => ['GET', `research:session:${id}`]));
+        const sessions = results
+          .map(r => r.result as string | null)
+          .filter(Boolean)
+          .map(s => JSON.parse(s as string));
+        return json({ sessions });
+      }
+
+      // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+      // CLOSE CLASS — teacher terminates the session for a class
+      // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+      case 'close-class': {
+        const { classId, podium } = body as { classId: string; podium: { rank: number; pseudo: string; points: number }[] };
+        if (!classId) return json({ error: 'Missing classId' }, 400);
+        const payload = JSON.stringify({ closedAt: new Date().toISOString(), podium: podium || [] });
+        await redis('SET', `class:closed:${classId}`, payload, 'EX', String(60 * 60 * 24 * 30));
+        return json({ ok: true });
+      }
+
+      // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+      // CHECK CLASS STATUS — poll for session closed flag
+      // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
+      case 'check-class-status': {
+        const { classId } = body as { classId: string };
+        if (!classId) return json({ closed: false });
+        const raw = await redis('GET', `class:closed:${classId}`) as string | null;
+        if (!raw) return json({ closed: false });
+        return json({ closed: true, ...JSON.parse(raw) });
+      }
+
+      // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
       // GET USAGE — global OpenAI token usage across all users/sessions ever
       // 🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴
       case 'get-usage': {
         const results = await redisPipeline([
+          ['GET', 'usage:chat:promptTokens'],
+          ['GET', 'usage:chat:completionTokens'],
+          ['GET', 'usage:persona:promptTokens'],
+          ['GET', 'usage:persona:completionTokens'],
+          // legacy keys (before the split) — add to chat totals
           ['GET', 'usage:promptTokens'],
           ['GET', 'usage:completionTokens'],
         ]);
-        const promptTokens = parseInt((results[0]?.result as string) || '0', 10);
-        const completionTokens = parseInt((results[1]?.result as string) || '0', 10);
-        return json({ promptTokens, completionTokens });
+        const legacyPrompt = parseInt((results[4]?.result as string) || '0', 10);
+        const legacyCompletion = parseInt((results[5]?.result as string) || '0', 10);
+        return json({
+          chat: {
+            promptTokens: parseInt((results[0]?.result as string) || '0', 10) + legacyPrompt,
+            completionTokens: parseInt((results[1]?.result as string) || '0', 10) + legacyCompletion,
+          },
+          persona: {
+            promptTokens: parseInt((results[2]?.result as string) || '0', 10),
+            completionTokens: parseInt((results[3]?.result as string) || '0', 10),
+          },
+        });
       }
 
       default:

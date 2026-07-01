@@ -17,8 +17,8 @@ async function trackUsage(promptTokens: number, completionTokens: number): Promi
         'Content-Type': 'application/json',
       },
       body: JSON.stringify([
-        ['INCRBY', 'usage:promptTokens', String(promptTokens)],
-        ['INCRBY', 'usage:completionTokens', String(completionTokens)],
+        ['INCRBY', 'usage:persona:promptTokens', String(promptTokens)],
+        ['INCRBY', 'usage:persona:completionTokens', String(completionTokens)],
       ]),
       signal: controller.signal,
     });
