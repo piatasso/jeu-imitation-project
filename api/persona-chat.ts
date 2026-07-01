@@ -5,6 +5,17 @@ const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const KV_URL = process.env.KV_REST_API_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN;
 
+async function redisCall(...args: unknown[]): Promise<unknown> {
+  if (!KV_URL || !KV_TOKEN) return null;
+  const res = await fetch(`${KV_URL}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${KV_TOKEN}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  const data = await res.json() as { result: unknown };
+  return data.result;
+}
+
 async function trackUsage(promptTokens: number, completionTokens: number): Promise<void> {
   if (!KV_URL || !KV_TOKEN || (!promptTokens && !completionTokens)) return;
   try {
@@ -131,6 +142,17 @@ export default async function handler(request: Request): Promise<Response> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     return new Response(JSON.stringify({ error: 'OPENAI_API_KEY not configured' }), { status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
+  }
+
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
+  const rateLimitKey = `ratelimit:persona:${ip}`;
+  const count = await redisCall('INCR', rateLimitKey) as number | null;
+  if (count === 1) await redisCall('EXPIRE', rateLimitKey, '3600');
+  if (count !== null && count > 20) {
+    return new Response(JSON.stringify({ error: 'Rate limit exceeded. Réessaie dans une heure.' }), {
+      status: 429,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
   }
 
   try {
