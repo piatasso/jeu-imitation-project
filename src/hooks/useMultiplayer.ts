@@ -31,6 +31,7 @@ export function useMultiplayer(userId: string) {
   const [receivedMessages, setReceivedMessages] = useState<ReceivedMessage[]>([]);
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [gameEnded, setGameEnded] = useState(false);
+  const [enqueteVerdict, setEnqueteVerdict] = useState<'human' | 'ai' | null>(null);
   const [relayError, setRelayError] = useState<string | null>(null);
 
   const roomCodeRef = useRef<string | null>(null);
@@ -129,6 +130,7 @@ export function useMultiplayer(userId: string) {
         // Game ended
         if (data.gameEnded) {
           setGameEnded(true);
+          if (data.enqueteVerdict) setEnqueteVerdict(data.enqueteVerdict as 'human' | 'ai');
         }
       }, 1000);
     },
@@ -246,9 +248,9 @@ export function useMultiplayer(userId: string) {
     relay({ action: 'typing', roomCode: roomCodeRef.current, userId });
   }, [relay, userId]);
 
-  const sendGameEnd = useCallback(() => {
+  const sendGameEnd = useCallback((verdictForEnquete?: string) => {
     if (!roomCodeRef.current) return;
-    relay({ action: 'game-end', roomCode: roomCodeRef.current });
+    relay({ action: 'game-end', roomCode: roomCodeRef.current, verdictForEnquete });
   }, [relay]);
 
   // 🎮🎮🎮 Rejoin an already-matched room (coming from lobby) 🎮🎮🎮
@@ -279,6 +281,7 @@ export function useMultiplayer(userId: string) {
     setReceivedMessages([]);
     setPartnerTyping(false);
     setGameEnded(false);
+    setEnqueteVerdict(null);
     setRelayError(null);
   }, [relay]);
 
@@ -288,6 +291,7 @@ export function useMultiplayer(userId: string) {
     receivedMessages,
     partnerTyping,
     gameEnded,
+    enqueteVerdict,
     relayError,
     createPrivateRoom,
     joinPrivateRoom,

@@ -403,7 +403,7 @@ export function PlayPage() {
     setResult({ correct: isCorrect, points });
     dispatch({ type: 'ADD_VOTE', payload: { id: uuidv4(), sessionId: session.id, enqueteurId: currentUser?.id || '', votedChat: vote, justification: justification.trim(), isCorrect, timestamp: new Date() } });
     dispatch({ type: 'UPDATE_SESSION', payload: { ...session, status: 'completed', endTime: new Date(), messages: { chatA: messagesA, chatB: messagesB } } });
-    if (multiplayer.matchData) multiplayer.sendGameEnd();
+    if (multiplayer.matchData) multiplayer.sendGameEnd(isCorrect ? 'human' : 'ai');
     // Save to Redis for cross-device research export (fire-and-forget)
     fetch('/api/relay', {
       method: 'POST',
@@ -418,6 +418,8 @@ export function PlayPage() {
           enqueteurPseudo: currentUser?.pseudo ?? 'Enquêteur',
           personaAName: personaA?.name ?? '?',
           personaBName: personaB?.name ?? '?',
+          personaAId: personaA?.id ?? null,
+          personaBId: personaB?.id ?? null,
           aiIsInChat: session.aiIsInChat,
           gameMode: session.gameMode,
           chatA: messagesA.map(m => ({ from: m.isFromAI ? (personaA?.name ?? 'IA') : (currentUser?.pseudo ?? 'Enquêteur'), content: m.content, isFromAI: m.isFromAI })),
@@ -921,7 +923,20 @@ export function PlayPage() {
             <p className="text-sm mb-6" style={{ color: MUTED }}>
               Vous avez échangé <span style={{ color: TEXT, fontWeight: 600 }}>{myCount}</span> messages.
             </p>
-            <p className="text-xs mb-8" style={{ color: MUTED }}>Avez-vous convaincu l'enquêteur que vous étiez humain ?</p>
+            {multiplayer.enqueteVerdict ? (
+              <div className="mb-8 rounded-xl px-4 py-3" style={{
+                background: multiplayer.enqueteVerdict === 'human' ? '#f0fdf4' : '#fef2f2',
+                border: `1px solid ${multiplayer.enqueteVerdict === 'human' ? '#bbf7d0' : '#fecaca'}`,
+              }}>
+                <p className="text-sm font-semibold" style={{ color: multiplayer.enqueteVerdict === 'human' ? '#16a34a' : '#dc2626' }}>
+                  {multiplayer.enqueteVerdict === 'human'
+                    ? "L'enquêteur a pensé que vous étiez humain !"
+                    : "L'enquêteur a pensé que vous étiez une IA."}
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs mb-8" style={{ color: MUTED }}>Résultat en attente...</p>
+            )}
             <div className="flex gap-2">
               <button onClick={playAgain} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white" style={{ background: ACCENT }}>Rejouer</button>
               <Link to="/" className="flex-1 py-2.5 rounded-xl text-sm font-medium text-center" style={{ background: PANEL, color: TEXT }}>Menu</Link>

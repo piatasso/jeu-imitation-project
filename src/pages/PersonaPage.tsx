@@ -18,6 +18,14 @@ const MUTED = '#78716c';
 const ACCENT = '#6366f1';
 const PINK = '#db2777';
 
+// ─── Feedback types ─────────────────────────────────────────────────────────
+
+interface PersonaFeedback {
+  justification: string;
+  wasDetected: boolean;
+  timestamp: string;
+}
+
 // ─── Chatbot helpers ────────────────────────────────────────────────────────
 
 interface ConversationMessage {
@@ -70,6 +78,7 @@ export function PersonaPage() {
   const [listSubTab, setListSubTab] = useState<'mine' | 'classmates'>('mine');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{ name: string; age: string; description: string; traits: string; interests: string; speakingStyle: string }>({ name: '', age: '', description: '', traits: '', interests: '', speakingStyle: '' });
+  const [personaFeedback, setPersonaFeedback] = useState<Record<string, PersonaFeedback[]>>({});
 
   // Match by pseudo so personas stay visible even if the user logged in under a different UUID
   const myPseudo = currentUser?.pseudo.toLowerCase();
@@ -95,7 +104,25 @@ export function PersonaPage() {
     setEditingId(null);
   };
 
-  const MAX_PERSONAS = 2;
+  const myPersonaIdsKey = myPersonas.map(p => p.id).join(',');
+  useEffect(() => {
+    if (!myPersonaIdsKey) return;
+    myPersonas.forEach(p => {
+      fetch('/api/relay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get-persona-feedback', personaId: p.id }),
+      })
+        .then(r => r.json())
+        .then((data: { feedback?: PersonaFeedback[] }) => {
+          setPersonaFeedback(prev => ({ ...prev, [p.id]: data.feedback || [] }));
+        })
+        .catch(() => {});
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myPersonaIdsKey]);
+
+  const MAX_PERSONAS = 1;
   const atLimit = myPersonas.length >= MAX_PERSONAS;
 
   const TABS = [
@@ -128,7 +155,7 @@ export function PersonaPage() {
         {/* Limit banner */}
         {atLimit && (
           <div className="mb-5 px-4 py-3 rounded-xl text-sm" style={{ background: '#fef9c3', color: '#854d0e', border: '1px solid #fde047' }}>
-            Tu as atteint la limite de {MAX_PERSONAS} personas. Supprime un persona existant pour en créer un nouveau.
+            Tu as déjà un persona. Supprime-le pour en créer un nouveau, ou modifie-le pour l'améliorer.
           </div>
         )}
 
@@ -217,6 +244,7 @@ export function PersonaPage() {
                       onEditFormChange={f => setEditForm(prev => ({ ...prev, ...f }))}
                       onSaveEdit={() => saveEdit(persona)}
                       onCancelEdit={() => setEditingId(null)}
+                      feedback={personaFeedback[persona.id]}
                     />
                   ))}
                 </div>
@@ -770,7 +798,7 @@ function ManualCreator({
 // ─── Persona card ─────────────────────────────────────────────────────────────
 
 function PersonaCard({
-  persona, onDelete, onEdit, isEditing, editForm, onEditFormChange, onSaveEdit, onCancelEdit,
+  persona, onDelete, onEdit, isEditing, editForm, onEditFormChange, onSaveEdit, onCancelEdit, feedback,
 }: {
   persona: Persona;
   onDelete?: () => void;
@@ -780,6 +808,7 @@ function PersonaCard({
   onEditFormChange?: (f: Partial<typeof editForm>) => void;
   onSaveEdit?: () => void;
   onCancelEdit?: () => void;
+  feedback?: PersonaFeedback[];
 }) {
   return (
     <div className="rounded-2xl p-5" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
@@ -838,6 +867,46 @@ function PersonaCard({
             <p className="text-xs mt-2" style={{ color: MUTED }}>
               <span style={{ fontWeight: 500 }}>Style :</span> {persona.speakingStyle}
             </p>
+          )}
+
+          {feedback !== undefined && (
+            <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${BORDER}` }}>
+              {feedback.length === 0 ? (
+                <p className="text-xs" style={{ color: MUTED }}>Aucune partie jouée avec ce persona pour l'instant.</p>
+              ) : (
+                <>
+                  <div className="flex gap-4 mb-3">
+                    <div className="text-center">
+                      <p className="text-lg font-bold" style={{ color: TEXT }}>{feedback.length}</p>
+                      <p className="text-xs" style={{ color: MUTED }}>partie{feedback.length > 1 ? 's' : ''}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-lg font-bold" style={{ color: '#16a34a' }}>{feedback.filter(f => !f.wasDetected).length}</p>
+                      <p className="text-xs" style={{ color: MUTED }}>fois non détecté</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-lg font-bold" style={{ color: '#dc2626' }}>{feedback.filter(f => f.wasDetected).length}</p>
+                      <p className="text-xs" style={{ color: MUTED }}>fois détecté</p>
+                    </div>
+                  </div>
+                  <p className="text-xs font-medium mb-2" style={{ color: MUTED }}>Commentaires des enquêteurs :</p>
+                  <div className="space-y-2">
+                    {feedback.slice(-5).reverse().map((fb, i) => (
+                      <div key={i} className="rounded-lg px-3 py-2 text-xs" style={{
+                        background: fb.wasDetected ? '#fef2f2' : '#f0fdf4',
+                        borderLeft: `3px solid ${fb.wasDetected ? '#fca5a5' : '#86efac'}`,
+                        color: TEXT,
+                      }}>
+                        <span className="font-medium" style={{ color: fb.wasDetected ? '#dc2626' : '#16a34a' }}>
+                          {fb.wasDetected ? 'Détecté · ' : 'Non détecté · '}
+                        </span>
+                        {fb.justification}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </>
       )}
