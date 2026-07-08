@@ -387,6 +387,7 @@ Français uniquement.`;
           model: 'gpt-5.5',
           messages,
           max_completion_tokens: 150,
+          temperature: 1.0,
         }),
         signal: openaiController.signal,
       });

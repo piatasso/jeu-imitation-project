@@ -191,7 +191,8 @@ export function PlayPage() {
 
   const startSoloGame = () => {
     if (!personaA) return;
-    const pB = personaB || getRandomPersona(personaA.id);
+    // personaB may equal personaA when falling back from a multiplayer waiting room
+    const pB = (personaB && personaB.id !== personaA.id) ? personaB : getRandomPersona(personaA.id);
     setPersonaB(pB);
     setRole(null);
     const newSession: ChatSession = {
