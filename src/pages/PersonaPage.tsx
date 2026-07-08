@@ -885,36 +885,54 @@ function PersonaCard({
 
           {feedback !== undefined && (
             <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${BORDER}` }}>
+              {/* Section header */}
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0" style={{ background: ACCENT }}>?</div>
+                <p className="text-xs font-semibold" style={{ color: TEXT }}>Retours des enquêteurs</p>
+                <p className="text-xs" style={{ color: MUTED }}>— ce qu'ils ont écrit après avoir joué contre ton IA</p>
+              </div>
+
               {feedback.length === 0 ? (
-                <p className="text-xs" style={{ color: MUTED }}>Aucune partie jouée avec ce persona pour l'instant.</p>
+                <p className="text-xs" style={{ color: MUTED }}>Ton persona n'a pas encore été utilisé dans une partie.</p>
               ) : (
                 <>
-                  <div className="flex gap-4 mb-3">
-                    <div className="text-center">
-                      <p className="text-lg font-bold" style={{ color: TEXT }}>{feedback.length}</p>
+                  {/* Stats row */}
+                  <div className="flex gap-3 mb-4">
+                    <div className="flex-1 rounded-xl px-3 py-2 text-center" style={{ background: PANEL }}>
+                      <p className="text-base font-bold" style={{ color: TEXT }}>{feedback.length}</p>
                       <p className="text-xs" style={{ color: MUTED }}>partie{feedback.length > 1 ? 's' : ''}</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-lg font-bold" style={{ color: '#16a34a' }}>{feedback.filter(f => !f.wasDetected).length}</p>
-                      <p className="text-xs" style={{ color: MUTED }}>fois non détecté</p>
+                    <div className="flex-1 rounded-xl px-3 py-2 text-center" style={{ background: '#f0fdf4' }}>
+                      <p className="text-base font-bold" style={{ color: '#16a34a' }}>{feedback.filter(f => !f.wasDetected).length}</p>
+                      <p className="text-xs" style={{ color: '#16a34a' }}>humain convaincant</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-lg font-bold" style={{ color: '#dc2626' }}>{feedback.filter(f => f.wasDetected).length}</p>
-                      <p className="text-xs" style={{ color: MUTED }}>fois détecté</p>
+                    <div className="flex-1 rounded-xl px-3 py-2 text-center" style={{ background: '#fef2f2' }}>
+                      <p className="text-base font-bold" style={{ color: '#dc2626' }}>{feedback.filter(f => f.wasDetected).length}</p>
+                      <p className="text-xs" style={{ color: '#dc2626' }}>IA repérée</p>
                     </div>
                   </div>
-                  <p className="text-xs font-medium mb-2" style={{ color: MUTED }}>Commentaires des enquêteurs :</p>
+
+                  {/* Feedback quotes */}
                   <div className="space-y-2">
                     {feedback.slice(-5).reverse().map((fb, i) => (
-                      <div key={i} className="rounded-lg px-3 py-2 text-xs" style={{
+                      <div key={i} className="rounded-xl p-3" style={{
                         background: fb.wasDetected ? '#fef2f2' : '#f0fdf4',
-                        borderLeft: `3px solid ${fb.wasDetected ? '#fca5a5' : '#86efac'}`,
-                        color: TEXT,
+                        border: `1px solid ${fb.wasDetected ? '#fecaca' : '#bbf7d0'}`,
                       }}>
-                        <span className="font-medium" style={{ color: fb.wasDetected ? '#dc2626' : '#16a34a' }}>
-                          {fb.wasDetected ? 'Détecté · ' : 'Non détecté · '}
-                        </span>
-                        {fb.justification}
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{
+                            background: fb.wasDetected ? '#dc2626' : '#16a34a',
+                            color: 'white',
+                          }}>
+                            {fb.wasDetected ? 'IA repérée' : 'IA non repérée'}
+                          </span>
+                          <span className="text-xs" style={{ color: MUTED }}>· verdict de l'enquêteur</span>
+                        </div>
+                        <p className="text-xs leading-relaxed" style={{ color: TEXT }}>
+                          <span style={{ color: MUTED, fontStyle: 'italic' }}>"</span>
+                          {fb.justification}
+                          <span style={{ color: MUTED, fontStyle: 'italic' }}>"</span>
+                        </p>
                       </div>
                     ))}
                   </div>
