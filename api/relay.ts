@@ -426,17 +426,37 @@ export default async function handler(request: Request): Promise<Response> {
           ['SADD', 'research:sessions', id],
         ]);
 
-        // Store investigator justification as feedback on the AI persona
+        // Store investigator justification as feedback on the AI persona(s)
         const aiIsInChat = session.aiIsInChat as string | undefined;
-        if (aiIsInChat === 'A' || aiIsInChat === 'B') {
-          const aiPersonaId = (aiIsInChat === 'A' ? session.personaAId : session.personaBId) as string | undefined;
-          const justification = (session.justification as string | undefined)?.trim();
-          if (aiPersonaId && justification) {
-            await redis('RPUSH', `persona:feedback:${aiPersonaId}`, JSON.stringify({
-              justification,
-              wasDetected: session.isCorrect ?? false,
-              timestamp: session.timestamp || new Date().toISOString(),
-            }));
+        const justification = (session.justification as string | undefined)?.trim();
+        if (justification) {
+          if (aiIsInChat === 'A' || aiIsInChat === 'B') {
+            const aiPersonaId = (aiIsInChat === 'A' ? session.personaAId : session.personaBId) as string | undefined;
+            if (aiPersonaId) {
+              await redis('RPUSH', `persona:feedback:${aiPersonaId}`, JSON.stringify({
+                justification,
+                wasDetected: session.isCorrect ?? false,
+                timestamp: session.timestamp || new Date().toISOString(),
+              }));
+            }
+          } else if (aiIsInChat === 'both') {
+            // Solo mode: both chats are AI — store feedback for each persona separately
+            const vote = session.vote as string | undefined;
+            const personaAId = session.personaAId as string | undefined;
+            const personaBId = session.personaBId as string | undefined;
+            const feedbackBase = { justification, timestamp: session.timestamp || new Date().toISOString() };
+            if (personaAId) {
+              await redis('RPUSH', `persona:feedback:${personaAId}`, JSON.stringify({
+                ...feedbackBase,
+                wasDetected: vote === 'A',
+              }));
+            }
+            if (personaBId && personaBId !== personaAId) {
+              await redis('RPUSH', `persona:feedback:${personaBId}`, JSON.stringify({
+                ...feedbackBase,
+                wasDetected: vote === 'B',
+              }));
+            }
           }
         }
 

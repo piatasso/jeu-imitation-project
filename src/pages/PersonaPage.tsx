@@ -126,7 +126,7 @@ export function PersonaPage() {
   const atLimit = myPersonas.length >= MAX_PERSONAS;
 
   const TABS = [
-    { id: 'chatbot' as Tab, label: 'Chatbot' },
+    { id: 'chatbot' as Tab, label: atLimit ? 'Améliorer' : 'Chatbot' },
     { id: 'manual' as Tab, label: 'Formulaire' },
     { id: 'list' as Tab, label: `Personas (${personas.length})` },
   ];
@@ -155,15 +155,14 @@ export function PersonaPage() {
         {/* Limit banner */}
         {atLimit && (
           <div className="mb-5 px-4 py-3 rounded-xl text-sm" style={{ background: '#fef9c3', color: '#854d0e', border: '1px solid #fde047' }}>
-            Tu as déjà un persona. Supprime-le pour en créer un nouveau, ou modifie-le pour l'améliorer.
+            Tu as déjà un persona. Utilise l'onglet "Améliorer" pour le modifier avec le chatbot, ou supprime-le pour en créer un nouveau.
           </div>
         )}
 
         {/* Tabs */}
         <div className="flex gap-1 p-1 rounded-xl mb-6 w-fit" style={{ background: PANEL }}>
           {TABS.map(t => {
-            const isCreationTab = t.id === 'chatbot' || t.id === 'manual';
-            const disabled = isCreationTab && atLimit;
+            const disabled = t.id === 'manual' && atLimit;
             return (
               <button
                 key={t.id}
@@ -188,6 +187,7 @@ export function PersonaPage() {
             classId={currentUser?.classId || 'default'}
             onSaved={() => setTab('list')}
             createPersona={createPersona}
+            existingPersona={atLimit && myPersonas.length > 0 ? myPersonas[0] : undefined}
           />
         )}
 
@@ -273,18 +273,28 @@ export function PersonaPage() {
 
 // ─── Chatbot creator ──────────────────────────────────────────────────────────
 
+function buildEditOpeningMsg(p: Persona): string {
+  const traitsStr = p.traits.length > 0 ? ` Traits : ${p.traits.join(', ')}.` : '';
+  const interestsStr = p.interests.length > 0 ? ` Intérêts : ${p.interests.join(', ')}.` : '';
+  const styleStr = p.speakingStyle ? ` Style d'expression : ${p.speakingStyle}.` : '';
+  return `Ton persona actuel s'appelle ${p.name}, ${p.age} ans. ${p.description}${traitsStr}${interestsStr}${styleStr}\n\nQu'est-ce que tu voudrais améliorer ou changer ?`;
+}
+
 function ChatbotCreator({
   classId,
   onSaved,
   createPersona,
+  existingPersona,
 }: {
   classId: string;
   onSaved: () => void;
   createPersona: (p: Omit<Persona, 'id' | 'createdAt' | 'createdBy'>) => void;
+  existingPersona?: Persona;
 }) {
   const { dispatch } = useGame();
+  const openingMessage = existingPersona ? buildEditOpeningMsg(existingPersona) : OPENING_MESSAGE;
   const [messages, setMessages] = useState<ConversationMessage[]>([
-    { id: uuidv4(), content: OPENING_MESSAGE, isFromUser: false },
+    { id: uuidv4(), content: openingMessage, isFromUser: false },
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -365,8 +375,12 @@ function ChatbotCreator({
 
   const savePersona = () => {
     if (!extracted) return;
-    createPersona({ ...extracted, classId });
-    setMessages([{ id: uuidv4(), content: OPENING_MESSAGE, isFromUser: false }]);
+    if (existingPersona) {
+      dispatch({ type: 'UPDATE_PERSONA', payload: { ...existingPersona, ...extracted } });
+    } else {
+      createPersona({ ...extracted, classId });
+    }
+    setMessages([{ id: uuidv4(), content: openingMessage, isFromUser: false }]);
     setExtracted(null);
     setCanFinish(false);
     onSaved();
@@ -379,7 +393,7 @@ function ChatbotCreator({
       <div className="rounded-2xl p-6" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
         <div className="flex items-center gap-2 mb-5">
           <div className="w-2 h-2 rounded-full" style={{ background: '#10b981' }} />
-          <p className="text-sm font-semibold" style={{ color: TEXT }}>Persona généré</p>
+          <p className="text-sm font-semibold" style={{ color: TEXT }}>{existingPersona ? 'Persona mis à jour' : 'Persona généré'}</p>
         </div>
         <div className="space-y-3 mb-6">
           {[
@@ -439,7 +453,7 @@ function ChatbotCreator({
             onMouseEnter={e => (e.currentTarget.style.background = '#4f46e5')}
             onMouseLeave={e => (e.currentTarget.style.background = ACCENT)}
           >
-            Sauvegarder le persona
+            {existingPersona ? 'Mettre à jour le persona' : 'Sauvegarder le persona'}
           </button>
           <button
             onClick={() => setExtracted(null)}
