@@ -878,7 +878,7 @@ export function PlayPage() {
                 >
                   <p className="text-4xl font-bold mb-2" style={{ color: vote === chat ? color : MUTED }}>{chat}</p>
                   <p className="text-sm font-medium" style={{ color: TEXT }}>Interlocuteur {chat}</p>
-                  {persona && <p className="text-xs mt-1" style={{ color: MUTED }}>{persona.name}</p>}
+                  {isSolo && persona && <p className="text-xs mt-1" style={{ color: MUTED }}>{persona.name}</p>}
                 </button>
               ))}
             </div>
