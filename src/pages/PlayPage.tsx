@@ -31,6 +31,22 @@ function computeTypingDelay(responseText: string): number {
   return Math.min(thinkTime + charCount * msPerChar, 18000); // cap at 18s
 }
 
+// 20% chance of a mid-composition pause: indicator disappears for a bit then comes back.
+// setTyping must already be true when called; it will be true again when resolved.
+async function simulateTypingDelay(setTyping: (v: boolean) => void, totalMs: number): Promise<void> {
+  if (Math.random() < 0.1) {
+    const pauseAt = totalMs * (0.25 + Math.random() * 0.45);
+    const pauseLen = 1500 + Math.random() * 3000;
+    await new Promise(r => setTimeout(r, pauseAt));
+    setTyping(false);
+    await new Promise(r => setTimeout(r, pauseLen));
+    setTyping(true);
+    await new Promise(r => setTimeout(r, totalMs - pauseAt));
+  } else {
+    await new Promise(r => setTimeout(r, totalMs));
+  }
+}
+
 export function PlayPage() {
   const { state, dispatch } = useGame();
   const { currentUser, personas, sessions, enqueteurScores } = state;
@@ -332,7 +348,7 @@ export function PlayPage() {
       setTypingA(true);
       const { response, followUp, followUp2, usage } = await generateAIResponse(personaA, messagesA, question, pastUserMessages);
       if (usage) dispatch({ type: 'ADD_TOKEN_USAGE', payload: { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens } });
-      await new Promise(resolve => setTimeout(resolve, computeTypingDelay(response)));
+      await simulateTypingDelay(v => setTypingA(v), computeTypingDelay(response));
       setTypingA(false);
       setMessagesA(prev => [...prev, createAIMessage(response)]);
       if (followUp) {
@@ -369,7 +385,7 @@ export function PlayPage() {
       setTypingB(true);
       const { response, followUp, followUp2, usage } = await generateAIResponse(personaB, messagesB, question, pastUserMessages);
       if (usage) dispatch({ type: 'ADD_TOKEN_USAGE', payload: { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens } });
-      await new Promise(resolve => setTimeout(resolve, computeTypingDelay(response)));
+      await simulateTypingDelay(v => setTypingB(v), computeTypingDelay(response));
       setTypingB(false);
       setMessagesB(prev => [...prev, createAIMessage(response)]);
       if (followUp) {
