@@ -205,8 +205,14 @@ export function PlayPage() {
     dispatch({ type: 'ADD_SESSION', payload: newSession });
     setPhase('playing');
     start();
-    if (Math.random() < 0.5) setTimeout(() => setMessagesA([{ id: uuidv4(), content: randomGreeting(), senderId: 'ai-a', timestamp: new Date(), isFromAI: true }]), 2000 + Math.random() * 4000);
-    if (Math.random() < 0.5) setTimeout(() => setMessagesB([{ id: uuidv4(), content: randomGreeting(), senderId: 'ai-b', timestamp: new Date(), isFromAI: true }]), 2000 + Math.random() * 4000);
+    if (Math.random() < 0.5) {
+      const gA = randomGreeting(); const waitA = 3000 + Math.random() * 8000;
+      setTimeout(() => { setTypingA(true); setTimeout(() => { setTypingA(false); setMessagesA([{ id: uuidv4(), content: gA, senderId: 'ai-a', timestamp: new Date(), isFromAI: true }]); }, computeTypingDelay(gA)); }, waitA);
+    }
+    if (Math.random() < 0.5) {
+      const gB = randomGreeting(); const waitB = 3000 + Math.random() * 8000;
+      setTimeout(() => { setTypingB(true); setTimeout(() => { setTypingB(false); setMessagesB([{ id: uuidv4(), content: gB, senderId: 'ai-b', timestamp: new Date(), isFromAI: true }]); }, computeTypingDelay(gB)); }, waitB);
+    }
   };
 
   const startMultiplayerGame = () => {
@@ -228,13 +234,16 @@ export function PlayPage() {
     if (waitingIntervalRef.current) clearInterval(waitingIntervalRef.current);
     setPhase('playing');
     start();
-    // AI chat sometimes sends an opening greeting, sometimes waits for the human to go first
+    // AI chat sometimes sends an opening greeting, sometimes waits for the human to go first.
+    // Delay is long (20–50s) so the AI doesn't reveal itself by messaging before the human has had time to.
     if (Math.random() < 0.5) {
-      const aiDelay = 2000 + Math.random() * 4000;
+      const greeting = randomGreeting();
+      const waitBeforeTyping = 20000 + Math.random() * 30000;
+      const typingDuration = computeTypingDelay(greeting);
       if (aiChat === 'A') {
-        setTimeout(() => setMessagesA([{ id: uuidv4(), content: randomGreeting(), senderId: 'ai-a', timestamp: new Date(), isFromAI: true }]), aiDelay);
+        setTimeout(() => { setTypingA(true); setTimeout(() => { setTypingA(false); setMessagesA([{ id: uuidv4(), content: greeting, senderId: 'ai-a', timestamp: new Date(), isFromAI: true }]); }, typingDuration); }, waitBeforeTyping);
       } else {
-        setTimeout(() => setMessagesB([{ id: uuidv4(), content: randomGreeting(), senderId: 'ai-b', timestamp: new Date(), isFromAI: true }]), aiDelay);
+        setTimeout(() => { setTypingB(true); setTimeout(() => { setTypingB(false); setMessagesB([{ id: uuidv4(), content: greeting, senderId: 'ai-b', timestamp: new Date(), isFromAI: true }]); }, typingDuration); }, waitBeforeTyping);
       }
     }
   };
