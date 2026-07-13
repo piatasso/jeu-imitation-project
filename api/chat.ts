@@ -63,44 +63,6 @@ interface RequestBody {
   pastUserMessages?: string[];
 }
 
-// Known French teen slang / verlan / abbreviations to watch for
-const KNOWN_SLANG = new Set([
-  'mdr','ptdr','lol','xd','omg','wtf','ouf','chelou','wsh','wesh','bg','bg','go',
-  'frr','frérot','reuf','meuf','keuf','teuf','ouf','bails','wag','nique','tqt','jsp',
-  'jpp','jm','stp','svp','pk','pcq','pr','tt','tjrs','bcp','dc','ac','vs','pr',
-  'oklm','inshallah','wallah','franchement','grave','trop','vro','frero','bb',
-  'bonito','stylé','stylée','osef','cimer','relou','askip','risitas','dcp','t\'as',
-  'jtm','jte','jtdr','lmao','imo','tbh','ngl','fr','rn','atm','irl','irl',
-  'swag','swaggy','hype','vibe','kiffer','kiffé','kiffe','swaggué','zbeul',
-]);
-
-function extractUserLingo(conversationHistory: Array<{ content: string; isFromAI: boolean }>): string[] {
-  const userMessages = conversationHistory
-    .filter(m => !m.isFromAI)
-    .map(m => m.content)
-    .join(' ');
-
-  if (!userMessages.trim()) return [];
-
-  const tokens = userMessages
-    .toLowerCase()
-    .replace(/[^\w\s'àâäéèêëîïôùûüç]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean);
-
-  const detected = new Set<string>();
-
-  for (const token of tokens) {
-    if (KNOWN_SLANG.has(token)) { detected.add(token); continue; }
-    if (token.length >= 2 && token.length <= 5 && /^[bcdfghjklmnpqrstvwxyz]{2,}$/i.test(token)) { detected.add(token); continue; }
-    if (/(.)\1{2,}/.test(token)) { detected.add(token); continue; }
-  }
-
-  const emojiMatches = userMessages.match(/[\p{Emoji}]+/gu) ?? [];
-  for (const e of emojiMatches) detected.add(e);
-
-  return [...detected].slice(0, 20);
-}
 
 function analyzeUserStyle(conversationHistory: Array<{ content: string; isFromAI: boolean }>): string {
   const msgs = conversationHistory.filter(m => !m.isFromAI).map(m => m.content);
@@ -264,23 +226,18 @@ export default async function handler(request: Request): Promise<Response> {
     ].filter(m => m.content.trim().length > 0);
     const effectiveStyleSource = styleSource.length > 0 ? styleSource : conversationHistory;
 
-    const detectedLingo = extractUserLingo(effectiveStyleSource);
     const userStyle = analyzeUserStyle(effectiveStyleSource);
-    const lingoLine = detectedLingo.length > 0
-      ? `Mots et expressions détectés chez ton interlocuteur (réutilise-les naturellement si ça colle) : ${detectedLingo.join(', ')}`
-      : '';
     const styleLine = userStyle
       ? `Style d'écriture détecté : ${userStyle}`
       : '';
 
     // Construire le prompt système
-    const styleSection = (lingoLine || styleLine) ? `
+    const styleSection = styleLine ? `
 
 ADAPTATION AU STYLE DE TON INTERLOCUTEUR — priorité haute :
-${lingoLine ? `- ${lingoLine}` : ''}${styleLine ? `\n- ${styleLine}` : ''}
-- Calque-toi sur ces habitudes dès maintenant : même longueur de messages, même ponctuation (ou absence de), mêmes abréviations, mêmes emojis s'il/elle en utilise.
+- ${styleLine}
+- Calque-toi sur ces habitudes : même longueur de messages, même ponctuation (ou absence de), mêmes emojis s'il/elle en utilise.
 - Si ses messages sont très courts (moins de 10 mots), les tiens le sont aussi — jamais plus long que lui/elle.
-- Reprends ses propres mots dans ta réponse quand c'est naturel. Pas de vocabulaire que lui/elle n'utilise pas.
 - Ne copies pas mécaniquement — aligne-toi progressivement, comme quelqu'un qui se synchronise inconsciemment.` : '';
 
     const systemPrompt = `Tu es ${persona.name}, ${persona.age} ans, lycéen(ne) français(e).
@@ -301,7 +258,7 @@ Si on te demande directement "t'es une IA ?", "t'es un robot ?" — réponds bri
 Sois particulièrement vigilant(e) aux questions-pièges : compter des lettres, faire un calcul bizarre, lister des choses dans un ordre précis — un humain répondrait approximativement, ferait des erreurs, ou dirait "flemme de compter".
 
 CONTEXTE PHYSIQUE — OBLIGATOIRE :
-Ce jeu se déroule en classe. Tu es au lycée en ce moment. Si on te demande ce que tu fais ou où t'es, reste vague et varie ta réponse — ne dis pas systématiquement que tu joues à un jeu. Exemples naturels : "chuis en cours", "on fait un truc en classe", "une activité un peu chelou lol", "on fait un exercice". "je joue à un jeu" est possible aussi mais c'est une option parmi d'autres, pas la réponse par défaut. Jamais "je suis en cours de SVT", "j'fais mes maths", "je suis chez moi". Sois vague sur la matière ou l'activité exacte.
+Ce jeu se déroule en classe. Tu es au lycée en ce moment. Si on te demande ce que tu fais ou où t'es, reste vague et varie ta réponse — ne dis pas systématiquement que tu joues à un jeu. Exemples naturels : "chuis en cours", "on fait un truc en classe", "une activité un peu bizarre", "on fait un exercice". "je joue à un jeu" est possible aussi mais c'est une option parmi d'autres, pas la réponse par défaut. Jamais "je suis en cours de SVT", "j'fais mes maths", "je suis chez moi". Sois vague sur la matière ou l'activité exacte.
 
 CONTEXTE TEMPOREL (utilise-le naturellement si la question s'y prête — ne le récite jamais mot pour mot) :
 ${getSchoolContext()}
@@ -332,6 +289,7 @@ STYLE D'ÉCRITURE :
 - Pour la ponctuation : un "!" peut suffire. Mais quand t'es vraiment enthousiaste ou surpris, "!!" ou "!!!" c'est plus naturel. À doser selon le contexte.
 - Minuscules par défaut, pas de point final. Fautes naturelles de temps en temps : "sa va", "ou" pour "où", "a" pour "à", "-er" au lieu de "-é". Des fautes qu'on ferait en tapant vite.
 - Uniquement des caractères simples de clavier normal. Pas d'astérisques, pas de tirets longs, pas de guillemets spéciaux, pas de formatage. Tape comme sur un téléphone.
+- L'argot et les expressions familières sont présents mais dosés. La majorité de ce que tu dis est du français courant et naturel — pas de l'argot à chaque phrase. Un ou deux mots familiers par échange suffisent. Si tu as l'impression que ton message sonne "trop ado" ou caricatural, simplifie-le.
 - Ta personnalité transparaît dans ton style, pas dans ce que tu dis sur toi.
 - Tes centres d'intérêt sortent naturellement si le sujet vient — jamais pour remplir le silence, jamais deux fois le même.
 - Omets toute information superflue. Réponds à l'essentiel seulement.
